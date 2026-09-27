@@ -45,6 +45,23 @@ const SHOP_ITEMS = [
   },
 ];
 
+const PRICE_PLANS = [
+  { id: 'week', label: '1 semaine', price: '14 $', note: 'Accès découverte' },
+  { id: 'month', label: '1 mois', price: '29 $', note: 'Accès standard' },
+  { id: '3months', label: '3 mois', price: '69 $', note: 'Économie 20%' },
+  { id: '6months', label: '6 mois', price: '119 $', note: 'Économie 30%' },
+  { id: 'year', label: '1 an', price: '199 $', note: 'Accès annuel premium' },
+  { id: 'boost', label: 'Boost profil', price: '9 $', note: 'Mise en avant 24h' },
+];
+
+const TRANSLATION_LANGUAGES = ['Français', 'English', 'Español', 'Português', 'Italiano', 'Deutsch', 'العربية', 'Türkçe', 'हिन्दी', 'Tagalog'];
+
+const PROFILES = [
+  { id: 'alex', name: 'Alex', mood: 'Chill lofi' },
+  { id: 'sam', name: 'Sam', mood: 'Pride vibes' },
+  { id: 'mika', name: 'Mika', mood: 'Night talk' },
+];
+
 const SOS_STATE = {
   IDLE: 'idle',
   SENDING: 'sending',
@@ -53,11 +70,14 @@ const SOS_STATE = {
   FAILED: 'failed',
 };
 
+const MATCH_WINDOW_MS = 1800;
+const FLASH_DURATION_MS = 500;
+
 const isBrowser = typeof window !== 'undefined';
 
 function parseGeoError(error) {
   if (!error) {
-    return "La localisation n'a pas pu être déterminée.";
+    return 'La localisation n’a pas pu être déterminée.';
   }
 
   switch (error.code) {
@@ -68,7 +88,7 @@ function parseGeoError(error) {
     case 3:
       return 'Délai dépassé pour récupérer la position.';
     default:
-      return "La localisation n'a pas pu être déterminée.";
+      return 'La localisation n’a pas pu être déterminée.';
   }
 }
 
@@ -120,6 +140,7 @@ async function checkService(url, timeoutMs, signal) {
 export default function VibegayDashboard() {
   const [activeTab, setActiveTab] = useState('salon');
   const [ghostMode, setGhostMode] = useState(false);
+  const [revealedProfiles, setRevealedProfiles] = useState({});
   const [angeModalOpen, setAngeModalOpen] = useState(false);
 
   const [isPlaying, setIsPlaying] = useState(false);
@@ -137,12 +158,23 @@ export default function VibegayDashboard() {
 
   const [networkOnline, setNetworkOnline] = useState(isBrowser ? window.navigator.onLine : true);
   const [shopNotice, setShopNotice] = useState('');
+  const [profileNotice, setProfileNotice] = useState('');
+  const [matchNotice, setMatchNotice] = useState('');
+  const [isGlobalFlashVisible, setIsGlobalFlashVisible] = useState(false);
+  const flashTimerRef = useRef(null);
+  const matchTimerRef = useRef(null);
+  const lastProfileClickRef = useRef({ id: '', at: 0 });
 
   const [serviceStatus, setServiceStatus] = useState({
     api: appConfig.apiHealthUrl ? SERVICE_STATE.CHECKING : SERVICE_STATE.UNCONFIGURED,
     supabase: appConfig.supabaseHealthUrl ? SERVICE_STATE.CHECKING : SERVICE_STATE.UNCONFIGURED,
     loi25: appConfig.loi25PolicyUrl ? SERVICE_STATE.CHECKING : SERVICE_STATE.UNCONFIGURED,
+    translation: appConfig.translationHealthUrl ? SERVICE_STATE.CHECKING : SERVICE_STATE.UNCONFIGURED,
+    voice: appConfig.voiceHealthUrl ? SERVICE_STATE.CHECKING : SERVICE_STATE.UNCONFIGURED,
   });
+
+  const freeRemaining = Math.max(0, appConfig.freeRegistrationsLimit - appConfig.freeRegistrationsUsed);
+  const paidRemaining = Math.max(0, appConfig.yearlyPaidTicketsLimit - appConfig.yearlyPaidTicketsSold);
 
   useEffect(() => {
     const currentAudio = audioRef.current;
@@ -182,6 +214,8 @@ export default function VibegayDashboard() {
         ['api', appConfig.apiHealthUrl],
         ['supabase', appConfig.supabaseHealthUrl],
         ['loi25', appConfig.loi25PolicyUrl],
+        ['translation', appConfig.translationHealthUrl],
+        ['voice', appConfig.voiceHealthUrl],
       ];
 
       for (const [key, url] of checks) {
@@ -216,6 +250,12 @@ export default function VibegayDashboard() {
   useEffect(() => () => {
     if (sosResetTimerRef.current) {
       clearTimeout(sosResetTimerRef.current);
+    }
+    if (flashTimerRef.current) {
+      clearTimeout(flashTimerRef.current);
+    }
+    if (matchTimerRef.current) {
+      clearTimeout(matchTimerRef.current);
     }
   }, []);
 
@@ -254,9 +294,71 @@ export default function VibegayDashboard() {
         setIsPlaying(true);
       }
     } catch {
-      setAudioError("Lecture bloquée par le navigateur. Cliquez à nouveau pour autoriser l'audio.");
+      setAudioError('Lecture bloquée par le navigateur. Cliquez à nouveau pour autoriser l’audio.');
       setIsPlaying(false);
     }
+  };
+
+  const playWhisperEffect = () => {
+    if (!isBrowser) {
+      setProfileNotice('Effet chuchotement non disponible hors navigateur.');
+      return;
+    }
+
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) {
+      setProfileNotice('Effet chuchotement non supporté sur ce navigateur.');
+      return;
+    }
+
+    const context = new AudioContextClass();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+
+    oscillator.type = 'triangle';
+    oscillator.frequency.setValueAtTime(420, context.currentTime);
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.02, context.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.2);
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.2);
+    oscillator.onended = () => {
+      context.close();
+    };
+  };
+
+  const handleProfileClick = (profile) => {
+    playWhisperEffect();
+    setProfileNotice(`Profil ${profile.name}: chuchotement local activé.`);
+
+    const now = Date.now();
+    const previous = lastProfileClickRef.current;
+    if (previous.id && previous.id !== profile.id && now - previous.at <= MATCH_WINDOW_MS) {
+      setIsGlobalFlashVisible(true);
+      setMatchNotice(`Match détecté entre ${previous.id} et ${profile.name} (simulation locale).`);
+
+      if (flashTimerRef.current) {
+        clearTimeout(flashTimerRef.current);
+      }
+      flashTimerRef.current = setTimeout(() => setIsGlobalFlashVisible(false), FLASH_DURATION_MS);
+
+      if (matchTimerRef.current) {
+        clearTimeout(matchTimerRef.current);
+      }
+      matchTimerRef.current = setTimeout(() => setMatchNotice(''), 3500);
+    }
+
+    lastProfileClickRef.current = { id: profile.name, at: now };
+  };
+
+  const toggleRevealProfile = (profileId) => {
+    setRevealedProfiles((previous) => ({
+      ...previous,
+      [profileId]: !previous[profileId],
+    }));
   };
 
   const triggerModeAnge = () => {
@@ -349,6 +451,8 @@ export default function VibegayDashboard() {
 
   return (
     <div className={`min-h-screen transition-colors duration-300 font-sans ${ghostMode ? 'bg-slate-950 text-slate-300' : 'bg-slate-900 text-white'}`}>
+      {isGlobalFlashVisible && <div className="fixed inset-0 bg-white/70 z-50 pointer-events-none" />}
+
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-40 px-6 py-4 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-pink-500 via-purple-500 to-indigo-500 flex items-center justify-center font-black text-xl text-white shadow-lg shadow-pink-500/20">
@@ -387,18 +491,18 @@ export default function VibegayDashboard() {
             <span className={`w-2.5 h-2.5 rounded-full ${STATUS_CLASSNAMES[globalSystemStatus]}`} />
             <span className="font-semibold">Statut global: {globalSystemStatus}</span>
           </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
             <span>Réseau navigateur: <strong>{networkOnline ? 'opérationnel' : 'indisponible'}</strong></span>
             <span>API Healthcheck: <strong>{serviceStatus.api}</strong></span>
             <span>Supabase: <strong>{serviceStatus.supabase}</strong></span>
             <span>Loi 25 (page politique): <strong>{serviceStatus.loi25}</strong></span>
+            <span>Traduction temps réel (10 langues): <strong>{serviceStatus.translation}</strong></span>
+            <span>Salon voix temps réel: <strong>{serviceStatus.voice}</strong></span>
           </div>
-          <p className="text-[11px] text-slate-400">
-            Les statuts affichent des vérifications réelles seulement si les variables `VITE_*` correspondantes sont configurées.
-          </p>
+          <p className="text-[11px] text-slate-400">Les statuts affichent des vérifications réelles seulement si les variables `VITE_*` correspondantes sont configurées.</p>
         </div>
 
-        <div className="flex border-b border-slate-800 mb-8 gap-2">
+        <div className="flex border-b border-slate-800 mb-8 gap-2 flex-wrap">
           <button
             onClick={() => setActiveTab('salon')}
             className={`px-6 py-3 font-semibold text-sm border-b-2 transition ${
@@ -408,12 +512,28 @@ export default function VibegayDashboard() {
             🎵 Salon Audio
           </button>
           <button
+            onClick={() => setActiveTab('acces')}
+            className={`px-6 py-3 font-semibold text-sm border-b-2 transition ${
+              activeTab === 'acces' ? 'border-emerald-500 text-emerald-400' : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            🎟️ Accès & Tarifs
+          </button>
+          <button
+            onClick={() => setActiveTab('profils')}
+            className={`px-6 py-3 font-semibold text-sm border-b-2 transition ${
+              activeTab === 'profils' ? 'border-cyan-500 text-cyan-400' : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            💫 Profils & Match
+          </button>
+          <button
             onClick={() => setActiveTab('boutique')}
             className={`px-6 py-3 font-semibold text-sm border-b-2 transition ${
               activeTab === 'boutique' ? 'border-purple-500 text-purple-400' : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            🛍️ Boutique & Extra Links
+            🛍️ Boutique
           </button>
           <button
             onClick={() => setActiveTab('globe')}
@@ -475,6 +595,98 @@ export default function VibegayDashboard() {
                   <span className="text-xs text-slate-400">🔊</span>
                 </div>
               </div>
+            </div>
+          </section>
+        )}
+
+        {activeTab === 'acces' && (
+          <section className="space-y-6">
+            <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6 space-y-3">
+              <h2 className="text-2xl font-bold">Inscription & Billets</h2>
+              <p className="text-slate-300 text-sm">
+                Règle active: {appConfig.freeRegistrationsLimit} inscriptions gratuites, ensuite {appConfig.yearlyPaidTicketsLimit} billets annuels à {appConfig.yearlyPaidTicketPriceCad}$ CAD (paiement unique).
+              </p>
+              <div className="grid sm:grid-cols-2 gap-3 text-sm">
+                <div className="p-3 rounded-xl border border-slate-700 bg-slate-900/60">
+                  <p>Inscriptions gratuites restantes: <strong>{freeRemaining}</strong></p>
+                  <p className="text-xs text-slate-400">Utilisées: {appConfig.freeRegistrationsUsed}</p>
+                </div>
+                <div className="p-3 rounded-xl border border-slate-700 bg-slate-900/60">
+                  <p>Billets 1 an restants: <strong>{paidRemaining}</strong></p>
+                  <p className="text-xs text-slate-400">Vendus: {appConfig.yearlyPaidTicketsSold}</p>
+                </div>
+              </div>
+              {freeRemaining > 0 ? (
+                <p className="text-emerald-300 text-sm">Inscription gratuite disponible actuellement.</p>
+              ) : paidRemaining > 0 ? (
+                <p className="text-amber-300 text-sm">Le quota gratuit est atteint. Les billets annuels payants sont maintenant ouverts.</p>
+              ) : (
+                <p className="text-rose-300 text-sm">Quota payant atteint. Ouvrir une liste d’attente côté backend.</p>
+              )}
+            </div>
+
+            <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6">
+              <h3 className="text-xl font-bold mb-4">Tarifs (semaine/mois/année/boost)</h3>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {PRICE_PLANS.map((plan) => (
+                  <article key={plan.id} className="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
+                    <p className="text-sm text-slate-300">{plan.label}</p>
+                    <p className="text-2xl font-black mt-1">{plan.price}</p>
+                    <p className="text-xs text-slate-400 mt-2">{plan.note}</p>
+                  </article>
+                ))}
+              </div>
+              <p className="text-xs text-slate-400 mt-4">Paiements et remboursements nécessitent un backend financier sécurisé (non inclus côté frontend seul).</p>
+            </div>
+          </section>
+        )}
+
+        {activeTab === 'profils' && (
+          <section className="space-y-6">
+            <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6">
+              <h2 className="text-2xl font-bold mb-2">Profils, chuchotement et match</h2>
+              <p className="text-slate-300 text-sm">Le flash blanc et le message de match sont actuellement des simulations UI locales pour validation produit.</p>
+            </div>
+
+            {profileNotice && <div className="p-3 text-sm rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-200">{profileNotice}</div>}
+            {matchNotice && <div className="p-3 text-sm rounded-xl bg-fuchsia-500/20 border border-fuchsia-500/40 text-fuchsia-200">{matchNotice}</div>}
+
+            <div className="grid md:grid-cols-3 gap-4">
+              {PROFILES.map((profile) => {
+                const isRevealed = revealedProfiles[profile.id];
+                const hideProfile = ghostMode && !isRevealed;
+
+                return (
+                  <article key={profile.id} className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4">
+                    <div className="relative h-32 rounded-xl bg-gradient-to-br from-slate-700 to-slate-900 border border-slate-600 overflow-hidden flex items-center justify-center">
+                      <span className="text-5xl">{hideProfile ? '🕶️' : '🙂'}</span>
+                      {hideProfile && (
+                        <div className="absolute inset-0 bg-slate-200/20 backdrop-blur-md flex items-center justify-center text-xs text-slate-100 font-semibold">
+                          Silhouette masquée par brouillard
+                        </div>
+                      )}
+                    </div>
+                    <h3 className="font-bold mt-3">{hideProfile ? 'Profil masqué' : profile.name}</h3>
+                    <p className="text-xs text-slate-400 mb-3">{hideProfile ? 'Identité cachée en mode fantôme' : profile.mood}</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleProfileClick(profile)}
+                        className="flex-1 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-semibold"
+                      >
+                        Cliquer profil
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleRevealProfile(profile.id)}
+                        className="flex-1 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold"
+                      >
+                        {isRevealed ? 'Re-cacher' : 'Se dévoiler'}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           </section>
         )}
@@ -546,8 +758,12 @@ export default function VibegayDashboard() {
         )}
 
         <section className="mt-8 p-4 rounded-xl bg-slate-800/40 border border-slate-700/60 text-xs text-slate-300 space-y-1">
-          <p>Contact administrateur: <strong>{appConfig.adminContactEmail}</strong></p>
-          <p>Contact support: <strong>{appConfig.supportContactEmail}</strong></p>
+          <p>Fondateur / finance: <strong>{appConfig.adminContactEmail}</strong></p>
+          <p>Directeur des opérations: <strong>{appConfig.operationsDirectorName}</strong> ({appConfig.operationsDirectorEmail})</p>
+          <p>Support: <strong>{appConfig.supportContactEmail}</strong></p>
+          <p className="text-slate-400">Le directeur des opérations n’a pas accès aux paiements/remboursements sans backend RBAC dédié.</p>
+          <p className="text-slate-400">Mode Ange temps réel: <strong>{appConfig.sosApiUrl ? 'configuré (confirmation backend requise)' : 'simulé (backend non configuré)'}</strong></p>
+          <p className="text-slate-400">Traduction 10 langues: {TRANSLATION_LANGUAGES.join(' · ')}</p>
         </section>
       </main>
 
@@ -579,9 +795,7 @@ export default function VibegayDashboard() {
 
               {geoError && <p className="text-amber-300">{geoError}</p>}
 
-              <p className="text-slate-400 text-[11px] pt-1">
-                Sécurité/confidentialité: partagez votre position uniquement avec consentement explicite. Les données de localisation peuvent être sensibles.
-              </p>
+              <p className="text-slate-400 text-[11px] pt-1">Sécurité/confidentialité: partagez votre position uniquement avec consentement explicite.</p>
             </div>
 
             {!appConfig.sosApiUrl && (
