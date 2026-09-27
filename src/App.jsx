@@ -298,6 +298,13 @@ export default function VibegayDashboard() {
                     href={item.url}
                     target={item.isExternal ? "_blank" : "_self"}
                     rel={item.isExternal ? "noopener noreferrer" : undefined}
+                    onClick={(e) => {
+                      if (!item.isExternal) {
+                        e.preventDefault();
+                        setActiveTab('boutique');
+                        window.location.hash = 'boutique-section';
+                      }
+                    }}
                     className="w-full text-center py-2.5 rounded-xl font-semibold bg-slate-700 hover:bg-purple-600 text-white text-sm transition"
                   >
                     {item.isExternal ? "Visiter le lien externe ↗" : "Commander"}
