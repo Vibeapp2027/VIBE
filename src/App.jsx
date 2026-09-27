@@ -72,8 +72,21 @@ const SOS_STATE = {
 
 const MATCH_WINDOW_MS = 1800;
 const FLASH_DURATION_MS = 500;
+const TRIPLE_TAP_WINDOW_MS = 1800;
 
 const isBrowser = typeof window !== 'undefined';
+
+const PROFILE_COMPATIBILITY = {
+  alex: 82,
+  sam: 58,
+  mika: 34,
+};
+
+const PROFILE_COMPATIBILITY_TEXT = {
+  alex: 'Affinité forte: rythmes de vie et goûts audio très proches.',
+  sam: 'Affinité modérée: intérêts communs avec styles de communication différents.',
+  mika: 'Affinité plus basse: attentes relationnelles différentes à clarifier.',
+};
 
 function parseGeoError(error) {
   if (!error) {
@@ -155,6 +168,23 @@ export default function VibegayDashboard() {
   const [sosState, setSosState] = useState(SOS_STATE.IDLE);
   const [sosMessage, setSosMessage] = useState('');
   const sosResetTimerRef = useRef(null);
+  const sosHeartbeatRef = useRef(null);
+  const geoWatchRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+  const tripleTapRef = useRef({ taps: 0, firstAt: 0 });
+  const [isEmergencyArmed, setIsEmergencyArmed] = useState(false);
+  const [trustedContactInput, setTrustedContactInput] = useState('');
+  const [trustedContacts, setTrustedContacts] = useState([]);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [voiceCaptureState, setVoiceCaptureState] = useState(SERVICE_STATE.UNCONFIGURED);
+  const [gpsTrackingState, setGpsTrackingState] = useState(SERVICE_STATE.UNCONFIGURED);
+  const [sosRealtimeLogCount, setSosRealtimeLogCount] = useState(0);
+  const [isSubscriber, setIsSubscriber] = useState(false);
+  const [profileStats, setProfileStats] = useState(() => Object.fromEntries(PROFILES.map((profile) => [profile.id, { views: 0, status: 'pending' }])));
+  const [selectedProfileId, setSelectedProfileId] = useState('');
+  const [icebreakerPrompt, setIcebreakerPrompt] = useState('');
+  const [aiInterventionStopped, setAiInterventionStopped] = useState(false);
 
   const [networkOnline, setNetworkOnline] = useState(isBrowser ? window.navigator.onLine : true);
   const [shopNotice, setShopNotice] = useState('');
@@ -175,6 +205,9 @@ export default function VibegayDashboard() {
 
   const freeRemaining = Math.max(0, appConfig.freeRegistrationsLimit - appConfig.freeRegistrationsUsed);
   const paidRemaining = Math.max(0, appConfig.yearlyPaidTicketsLimit - appConfig.yearlyPaidTicketsSold);
+  const paidModeActive = freeRemaining === 0;
+  const floatingSalonUnlocked = paidModeActive || isSubscriber;
+  const nonSubscriberRadiusKm = appConfig.nonSubscriberRadiusKm;
 
   useEffect(() => {
     const currentAudio = audioRef.current;
@@ -251,11 +284,23 @@ export default function VibegayDashboard() {
     if (sosResetTimerRef.current) {
       clearTimeout(sosResetTimerRef.current);
     }
+    if (sosHeartbeatRef.current) {
+      clearInterval(sosHeartbeatRef.current);
+    }
     if (flashTimerRef.current) {
       clearTimeout(flashTimerRef.current);
     }
     if (matchTimerRef.current) {
       clearTimeout(matchTimerRef.current);
+    }
+    if (geoWatchRef.current !== null && isBrowser && window.navigator.geolocation) {
+      window.navigator.geolocation.clearWatch(geoWatchRef.current);
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
     }
   }, []);
 
@@ -333,6 +378,26 @@ export default function VibegayDashboard() {
   const handleProfileClick = (profile) => {
     playWhisperEffect();
     setProfileNotice(`Profil ${profile.name}: chuchotement local activé.`);
+    setSelectedProfileId(profile.id);
+    setProfileStats((previous) => ({
+      ...previous,
+      [profile.id]: {
+        ...previous[profile.id],
+        views: previous[profile.id].views + 1,
+      },
+    }));
+
+    const compatibility = PROFILE_COMPATIBILITY[profile.id] ?? 50;
+    if (compatibility <= 65 && compatibility >= 40) {
+      setIcebreakerPrompt('Question IA suggérée: “Quelle activité te recharge le plus cette semaine?”');
+      setAiInterventionStopped(false);
+    } else if (compatibility < 40) {
+      setIcebreakerPrompt('Compatibilité basse détectée: souhaitez-vous garder ou rejeter ce profil?');
+      setAiInterventionStopped(false);
+    } else {
+      setIcebreakerPrompt('');
+      setAiInterventionStopped(false);
+    }
 
     const now = Date.now();
     const previous = lastProfileClickRef.current;
@@ -361,92 +426,206 @@ export default function VibegayDashboard() {
     }));
   };
 
-  const triggerModeAnge = () => {
-    setAngeModalOpen(true);
-    setGeoError('');
-    setSosState(SOS_STATE.IDLE);
-    setSosMessage('');
-    setLocation(null);
-
-    if (!isBrowser || !window.navigator.geolocation) {
-      setGeoError('Géolocalisation indisponible sur cet appareil.');
+  const addTrustedContact = () => {
+    const normalized = trustedContactInput.trim().toLowerCase();
+    const looksLikeEmail = /\S+@\S+\.\S+/.test(normalized);
+    const looksLikePhone = /^\+?[0-9 ()-]{8,}$/.test(trustedContactInput.trim());
+    if (!normalized || (!looksLikeEmail && !looksLikePhone)) {
+      setSosMessage('Entrez un contact valide (email ou téléphone).');
       return;
     }
 
+    setTrustedContacts((previous) => {
+      if (previous.includes(normalized)) {
+        return previous;
+      }
+      return [...previous, normalized].slice(0, 5);
+    });
+    setTrustedContactInput('');
+    setSosMessage('');
+  };
+
+  const removeTrustedContact = (contactToRemove) => {
+    setTrustedContacts((previous) => previous.filter((contact) => contact !== contactToRemove));
+  };
+
+  const startVoiceCapture = async () => {
+    if (!isBrowser || !window.navigator.mediaDevices?.getUserMedia || typeof window.MediaRecorder === 'undefined') {
+      setVoiceCaptureState(SERVICE_STATE.UNCONFIGURED);
+      return;
+    }
+
+    try {
+      const stream = await window.navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      const recorder = new window.MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      recorder.start(1000);
+      setIsRecordingVoice(true);
+      setVoiceCaptureState(SERVICE_STATE.UP);
+      recorder.onstop = () => {
+        setIsRecordingVoice(false);
+      };
+    } catch {
+      setVoiceCaptureState(SERVICE_STATE.DOWN);
+    }
+  };
+
+  const stopEmergencySession = (message) => {
+    if (sosHeartbeatRef.current) {
+      clearInterval(sosHeartbeatRef.current);
+      sosHeartbeatRef.current = null;
+    }
+    if (geoWatchRef.current !== null && isBrowser && window.navigator.geolocation) {
+      window.navigator.geolocation.clearWatch(geoWatchRef.current);
+      geoWatchRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+    setIsRecordingVoice(false);
+    setIsEmergencyArmed(false);
+    setIsLocating(false);
+    if (message) {
+      setSosMessage(message);
+    }
+  };
+
+  const startEmergencySession = async () => {
+    if (trustedContacts.length === 0) {
+      setSosState(SOS_STATE.FAILED);
+      setSosMessage('Ajoutez au moins un contact de confiance avant le triple tape.');
+      return;
+    }
+
+    setSosState(SOS_STATE.SENDING);
+    setSosMessage('Session SOS active: suivi GPS + capture vocale locale démarrés.');
+    setIsEmergencyArmed(true);
+    setGpsTrackingState(SERVICE_STATE.CHECKING);
+    setVoiceCaptureState(SERVICE_STATE.CHECKING);
+    setSosRealtimeLogCount(0);
     setIsLocating(true);
 
-    window.navigator.geolocation.getCurrentPosition(
+    if (!isBrowser || !window.navigator.geolocation) {
+      setGpsTrackingState(SERVICE_STATE.UNCONFIGURED);
+      setSosState(SOS_STATE.SIMULATED);
+      setSosMessage('GPS indisponible: session SOS partielle en mode simulé.');
+      return;
+    }
+
+    geoWatchRef.current = window.navigator.geolocation.watchPosition(
       (position) => {
         setLocation({
           lat: position.coords.latitude.toFixed(5),
           lng: position.coords.longitude.toFixed(5),
         });
         setIsLocating(false);
+        setGpsTrackingState(SERVICE_STATE.UP);
       },
       (error) => {
         setGeoError(parseGeoError(error));
         setIsLocating(false);
+        setGpsTrackingState(SERVICE_STATE.DOWN);
       },
-      {
-        enableHighAccuracy: true,
-        timeout: appConfig.geoTimeoutMs,
-        maximumAge: 0,
-      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: appConfig.geoTimeoutMs },
     );
+
+    await startVoiceCapture();
+
+    const emitRealtimeEvent = async () => {
+      setSosRealtimeLogCount((previous) => previous + 1);
+      if (!appConfig.sosApiUrl) {
+        setSosState(SOS_STATE.SIMULATED);
+        return;
+      }
+      try {
+        await fetch(appConfig.sosApiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event: 'sos-realtime',
+            timestamp: new Date().toISOString(),
+            location,
+            trustedContacts,
+            recording: isRecordingVoice,
+          }),
+        });
+        setSosState(SOS_STATE.CONFIRMED);
+      } catch {
+        setSosState(SOS_STATE.FAILED);
+      }
+    };
+
+    await emitRealtimeEvent();
+    sosHeartbeatRef.current = setInterval(emitRealtimeEvent, appConfig.sosHeartbeatMs);
+  };
+
+  const handleEmergencyTap = async () => {
+    const now = Date.now();
+    const tracker = tripleTapRef.current;
+    if (now - tracker.firstAt > TRIPLE_TAP_WINDOW_MS) {
+      tracker.taps = 0;
+      tracker.firstAt = now;
+    }
+
+    if (tracker.taps === 0) {
+      tracker.firstAt = now;
+    }
+
+    tracker.taps += 1;
+    if (tracker.taps >= 3) {
+      tracker.taps = 0;
+      await startEmergencySession();
+    }
+  };
+
+  const updateProfileDecision = (profileId, status) => {
+    setProfileStats((previous) => ({
+      ...previous,
+      [profileId]: {
+        ...previous[profileId],
+        status,
+      },
+    }));
+    if (status === 'rejected') {
+      setProfileNotice('Profil marqué en rejet. Il sera filtré dès la couche backend prête.');
+    }
+    setIcebreakerPrompt('');
+    setAiInterventionStopped(false);
+  };
+
+  const handleColdConversation = () => {
+    setAiInterventionStopped(true);
+    setIcebreakerPrompt('');
+    setProfileNotice('Conversation toujours froide: l’IA se retire après une seule relance.');
+  };
+
+  const triggerModeAnge = () => {
+    setAngeModalOpen(true);
+    setGeoError('');
+    setSosState(SOS_STATE.IDLE);
+    setSosMessage('Ajoutez vos contacts puis faites 3 tapes sur l’écran pour démarrer la session SOS.');
+    setLocation(null);
+    setIsLocating(false);
   };
 
   const handleCloseModal = () => {
+    stopEmergencySession('');
     setAngeModalOpen(false);
     setIsLocating(false);
   };
 
   const handleSendSOS = async () => {
-    if (!appConfig.sosApiUrl) {
-      setSosState(SOS_STATE.SIMULATED);
-      setSosMessage('Mode simulé actif: aucun backend SOS configuré, aucun signal réel transmis.');
+    if (isEmergencyArmed) {
+      stopEmergencySession('Session SOS arrêtée manuellement.');
+      setSosState(SOS_STATE.IDLE);
       return;
     }
-
-    setSosState(SOS_STATE.SENDING);
-    setSosMessage('Transmission en cours...');
-
-    const timeoutController = new AbortController();
-    const timeoutId = setTimeout(() => timeoutController.abort(), appConfig.sosTimeoutMs);
-
-    try {
-      const response = await fetch(appConfig.sosApiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          event: 'sos',
-          timestamp: new Date().toISOString(),
-          location,
-        }),
-        signal: timeoutController.signal,
-      });
-
-      const data = await response.json().catch(() => ({}));
-      if (response.ok && data.confirmed === true) {
-        setSosState(SOS_STATE.CONFIRMED);
-        setSosMessage('Signal SOS confirmé par le backend.');
-        sosResetTimerRef.current = setTimeout(() => {
-          setSosState(SOS_STATE.IDLE);
-          setSosMessage('');
-          setAngeModalOpen(false);
-        }, 3000);
-        return;
-      }
-
-      setSosState(SOS_STATE.FAILED);
-      setSosMessage('Aucune confirmation backend reçue: SOS non confirmé.');
-    } catch {
-      setSosState(SOS_STATE.FAILED);
-      setSosMessage('Échec réseau ou délai dépassé: SOS non transmis.');
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    await startEmergencySession();
   };
 
   return (
@@ -498,6 +677,8 @@ export default function VibegayDashboard() {
             <span>Loi 25 (page politique): <strong>{serviceStatus.loi25}</strong></span>
             <span>Traduction temps réel (10 langues): <strong>{serviceStatus.translation}</strong></span>
             <span>Salon voix temps réel: <strong>{serviceStatus.voice}</strong></span>
+            <span>GPS SOS continu: <strong>{gpsTrackingState}</strong></span>
+            <span>Capture vocale SOS: <strong>{voiceCaptureState}</strong></span>
           </div>
           <p className="text-[11px] text-slate-400">Les statuts affichent des vérifications réelles seulement si les variables `VITE_*` correspondantes sont configurées.</p>
         </div>
@@ -551,6 +732,10 @@ export default function VibegayDashboard() {
               <span className="text-xs uppercase font-bold tracking-widest text-pink-400 mb-2 block">Espace Détente & Musique</span>
               <h2 className="text-3xl font-bold mb-4">Le Salon VIBE</h2>
               <p className="text-slate-300 text-sm mb-8">Lancez la piste du salon avec gestion des erreurs navigateur et du volume.</p>
+              <div className="mb-6 p-3 rounded-xl border border-slate-700 bg-slate-900/60 text-left text-xs text-slate-300">
+                <p>Salon flottant + voix avancée: <strong>{floatingSalonUnlocked ? 'disponible' : 'verrouillé jusqu’au palier abonnement'}</strong></p>
+                {!isSubscriber && <p className="text-slate-400 mt-1">Compte non abonné: visibilité limitée à {nonSubscriberRadiusKm} km hors extras.</p>}
+              </div>
 
               <audio
                 ref={audioRef}
@@ -623,6 +808,23 @@ export default function VibegayDashboard() {
               ) : (
                 <p className="text-rose-300 text-sm">Quota payant atteint. Ouvrir une liste d’attente côté backend.</p>
               )}
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsSubscriber((previous) => !previous)}
+                  className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs font-semibold"
+                >
+                  {isSubscriber ? 'Simuler non abonné' : 'Simuler abonné'}
+                </button>
+                <span className="text-xs text-slate-400">
+                  Compte actuel: <strong>{isSubscriber ? 'abonné' : 'non abonné'}</strong>
+                </span>
+              </div>
+              {!isSubscriber && (
+                <p className="text-xs text-amber-300">
+                  Règle appliquée: un compte non abonné voit uniquement jusqu’à {nonSubscriberRadiusKm} km. Au-delà: abonnement ou extras requis.
+                </p>
+              )}
             </div>
 
             <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6">
@@ -668,6 +870,9 @@ export default function VibegayDashboard() {
                     </div>
                     <h3 className="font-bold mt-3">{hideProfile ? 'Profil masqué' : profile.name}</h3>
                     <p className="text-xs text-slate-400 mb-3">{hideProfile ? 'Identité cachée en mode fantôme' : profile.mood}</p>
+                    <p className="text-xs text-slate-300 mb-1">Compatibilité: <strong>{PROFILE_COMPATIBILITY[profile.id]}%</strong></p>
+                    <p className="text-xs text-slate-400 mb-3">{PROFILE_COMPATIBILITY_TEXT[profile.id]}</p>
+                    <p className="text-[11px] text-slate-400 mb-3">Vues de votre profil par ce compte: {profileStats[profile.id].views}</p>
                     <div className="flex gap-2">
                       <button
                         type="button"
@@ -684,10 +889,53 @@ export default function VibegayDashboard() {
                         {isRevealed ? 'Re-cacher' : 'Se dévoiler'}
                       </button>
                     </div>
+                    {PROFILE_COMPATIBILITY[profile.id] < 40 && (
+                      <div className="flex gap-2 mt-3">
+                        <button
+                          type="button"
+                          onClick={() => updateProfileDecision(profile.id, 'kept')}
+                          className="flex-1 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
+                        >
+                          Garder
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateProfileDecision(profile.id, 'rejected')}
+                          className="flex-1 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold"
+                        >
+                          Rejeter
+                        </button>
+                      </div>
+                    )}
+                    {profileStats[profile.id].status !== 'pending' && (
+                      <p className="text-[11px] text-slate-400 mt-2">Décision: {profileStats[profile.id].status === 'kept' ? 'gardé' : 'rejeté'}.</p>
+                    )}
                   </article>
                 );
               })}
             </div>
+            {selectedProfileId && (
+              <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-4 text-sm text-slate-300">
+                <p className="font-semibold mb-1">Résumé compatibilité ({PROFILES.find((profile) => profile.id === selectedProfileId)?.name || selectedProfileId})</p>
+                <p>{PROFILE_COMPATIBILITY_TEXT[selectedProfileId]}</p>
+              </div>
+            )}
+            {icebreakerPrompt && (
+              <div className="rounded-xl border border-fuchsia-500/40 bg-fuchsia-500/10 p-4 text-sm text-fuchsia-100">
+                <p>{icebreakerPrompt}</p>
+                {PROFILE_COMPATIBILITY[selectedProfileId] >= 40 && PROFILE_COMPATIBILITY[selectedProfileId] <= 65 && !aiInterventionStopped && (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={handleColdConversation}
+                      className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs font-semibold text-white"
+                    >
+                      Toujours froid, arrêter l’intervention IA
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </section>
         )}
 
@@ -747,6 +995,11 @@ export default function VibegayDashboard() {
           <section className="bg-slate-800/40 border border-slate-700/60 rounded-2xl p-8 text-center">
             <h2 className="text-2xl font-bold mb-2">Carte d’Humeur Communautaire 3D</h2>
             <p className="text-slate-400 text-sm mb-6">Visualisation UI simulée. Le nombre de membres n’est pas connecté à un backend temps réel.</p>
+            {!isSubscriber && (
+              <p className="text-amber-300 text-xs mb-4">
+                Compte non abonné: rayon visible limité à {nonSubscriberRadiusKm} km. Le reste nécessite abonnement ou achat extra.
+              </p>
+            )}
 
             <div className="h-64 bg-slate-900 border border-slate-700 rounded-xl flex flex-col items-center justify-center relative overflow-hidden">
               <div className="absolute inset-0 bg-gradient-to-tr from-pink-500/10 via-purple-500/10 to-indigo-500/10 animate-pulse" />
@@ -762,14 +1015,14 @@ export default function VibegayDashboard() {
           <p>Directeur des opérations: <strong>{appConfig.operationsDirectorName}</strong> ({appConfig.operationsDirectorEmail})</p>
           <p>Support: <strong>{appConfig.supportContactEmail}</strong></p>
           <p className="text-slate-400">Le directeur des opérations n’a pas accès aux paiements/remboursements sans backend RBAC dédié.</p>
-          <p className="text-slate-400">Mode Ange temps réel: <strong>{appConfig.sosApiUrl ? 'configuré (confirmation backend requise)' : 'simulé (backend non configuré)'}</strong></p>
+          <p className="text-slate-400">Mode Ange temps réel: <strong>{appConfig.sosApiUrl ? 'configuré (confirmation backend requise)' : 'simulé (backend non configuré)'}</strong>{isEmergencyArmed ? ' — session active' : ''}</p>
           <p className="text-slate-400">Traduction 10 langues: {TRANSLATION_LANGUAGES.join(' · ')}</p>
         </section>
       </main>
 
       {angeModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-rose-500/50 rounded-2xl p-6 max-w-md w-full shadow-2xl relative">
+        <div onClick={handleEmergencyTap} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div onClick={(event) => event.stopPropagation()} className="bg-slate-900 border border-rose-500/50 rounded-2xl p-6 max-w-md w-full shadow-2xl relative">
             <button onClick={handleCloseModal} className="absolute top-4 right-4 text-slate-400 hover:text-white">
               ✕
             </button>
@@ -777,13 +1030,25 @@ export default function VibegayDashboard() {
             <div className="text-center mb-6">
               <span className="text-4xl block mb-2">🛡️</span>
               <h3 className="text-xl font-bold text-rose-500">Mode Ange — Urgence</h3>
-              <p className="text-xs text-slate-300 mt-1">Signal SOS avec confirmation backend obligatoire pour être marqué comme transmis.</p>
+              <p className="text-xs text-slate-300 mt-1">Ajoutez les contacts de confiance puis faites 3 tapes sur l’écran pour lancer GPS + voix.</p>
             </div>
 
             <div className="bg-slate-800 p-4 rounded-xl mb-4 text-xs space-y-2 border border-slate-700">
               <div className="flex justify-between">
+                <span className="text-slate-400">Contacts de confiance:</span>
+                <span className="font-bold text-slate-200">{trustedContacts.length}</span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-slate-400">Statut Localisation:</span>
-                <span className="font-bold text-slate-200">{isLocating ? 'Recherche GPS en cours...' : location ? 'Coordonnées prêtes' : 'Non disponible'}</span>
+                <span className="font-bold text-slate-200">{isLocating ? 'Recherche GPS en cours...' : location ? 'Flux GPS actif' : 'Non disponible'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Capture vocale:</span>
+                <span className="font-bold text-slate-200">{isRecordingVoice ? 'Enregistrement actif' : 'Inactive'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Événements temps réel:</span>
+                <span className="font-bold text-slate-200">{sosRealtimeLogCount}</span>
               </div>
 
               {location && (
@@ -796,6 +1061,39 @@ export default function VibegayDashboard() {
               {geoError && <p className="text-amber-300">{geoError}</p>}
 
               <p className="text-slate-400 text-[11px] pt-1">Sécurité/confidentialité: partagez votre position uniquement avec consentement explicite.</p>
+            </div>
+
+            <div className="mb-4 space-y-2">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={trustedContactInput}
+                  onChange={(event) => setTrustedContactInput(event.target.value)}
+                  placeholder="Email ou téléphone de confiance"
+                  className="flex-1 rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={addTrustedContact}
+                  className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm font-semibold"
+                >
+                  Ajouter
+                </button>
+              </div>
+              {trustedContacts.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {trustedContacts.map((contact) => (
+                    <button
+                      key={contact}
+                      type="button"
+                      onClick={() => removeTrustedContact(contact)}
+                      className="text-[11px] px-2 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300"
+                    >
+                      {contact} ✕
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {!appConfig.sosApiUrl && (
@@ -823,8 +1121,9 @@ export default function VibegayDashboard() {
               disabled={isLocating || sosState === SOS_STATE.SENDING}
               className="w-full py-3.5 rounded-xl font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/40 transition disabled:opacity-50"
             >
-              {sosState === SOS_STATE.SENDING ? 'Envoi en cours...' : 'Envoyer le signal d’urgence'}
+              {isEmergencyArmed ? 'Arrêter la session SOS' : sosState === SOS_STATE.SENDING ? 'Activation en cours...' : 'Activer sans triple tape'}
             </button>
+            <p className="text-[11px] text-slate-400 mt-3">Astuce: tapez 3 fois rapidement n’importe où sur l’écran pour un déclenchement discret.</p>
           </div>
         </div>
       )}

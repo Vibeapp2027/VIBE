@@ -35,4 +35,6 @@ export const appConfig = {
   yearlyPaidTicketsLimit: toPositiveInt(env.VITE_YEARLY_PAID_TICKETS_LIMIT, 500),
   yearlyPaidTicketsSold: toNonNegativeInt(env.VITE_YEARLY_PAID_TICKETS_SOLD, 0),
   yearlyPaidTicketPriceCad: toPositiveInt(env.VITE_YEARLY_PAID_TICKET_PRICE_CAD, 99),
+  nonSubscriberRadiusKm: toPositiveInt(env.VITE_NON_SUBSCRIBER_RADIUS_KM, 20),
+  sosHeartbeatMs: toPositiveInt(env.VITE_SOS_HEARTBEAT_MS, 10000),
 };

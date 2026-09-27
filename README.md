@@ -30,7 +30,13 @@ Copiez `.env.example` vers `.env` puis adaptez les variables `VITE_*`.
 
 - `VITE_SOS_API_URL`
   - Si vide: Mode Ange en **simulation explicite** (aucun envoi réel).
-  - Si configurée: un SOS n’est affiché comme transmis que si la réponse backend retourne `{"confirmed": true}`.
+  - Si configurée: le frontend envoie des battements SOS périodiques pendant la session d’urgence.
+- `VITE_SOS_HEARTBEAT_MS`
+  - Intervalle des envois périodiques SOS pendant la session active.
+- Fonction UX actuelle:
+  - Saisie de contacts de confiance.
+  - Déclenchement discret par **triple tape**.
+  - GPS continu (`watchPosition`) + capture vocale locale navigateur quand possible.
 
 ### Rôles de contact affichés
 
@@ -46,6 +52,7 @@ Copiez `.env.example` vers `.env` puis adaptez les variables `VITE_*`.
 - `VITE_YEARLY_PAID_TICKETS_LIMIT` (par défaut 500)
 - `VITE_YEARLY_PAID_TICKETS_SOLD`
 - `VITE_YEARLY_PAID_TICKET_PRICE_CAD` (par défaut 99)
+- `VITE_NON_SUBSCRIBER_RADIUS_KM` (par défaut 20)
 
 L’UI affiche la bascule du quota gratuit vers les billets payants annuels (paiement unique), mais l’encaissement réel nécessite un backend de paiement.
 
@@ -55,6 +62,9 @@ L’UI affiche la bascule du quota gratuit vers les billets payants annuels (pai
 - Profils avec mode fantôme: silhouette masquée par brouillard et bouton de dévoilement.
 - Clic profil: effet chuchotement local navigateur.
 - Match simulé: flash blanc + message de match lors de clics rapprochés (simulation locale).
+- Compatibilité profil: pourcentage + résumé, décision garder/rejeter pour compatibilité basse.
+- Suggestion IA de question brise-glace avec arrêt d’intervention après relance.
+- Limite non abonné: visibilité indiquée jusqu’à 20 km (configurable).
 - Traduction 10 langues affichée avec statut de disponibilité (backend requis pour vrai temps réel).
 
 ## Santé applicative et monitoring
