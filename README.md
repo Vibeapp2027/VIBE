@@ -88,3 +88,8 @@ Une base backend minimale est ajoutée dans `/backend`:
 - `openapi.json` (contrat d’API minimal)
 
 Voir `/backend/README.md` pour l’ordre d’exécution et les limites d’infrastructure restantes.
+
+## Manifeste opérationnel (PDF)
+
+- Source: `/docs/MANIFESTE_OPERATIONNEL_VIBE.md`
+- PDF: `/docs/MANIFESTE_OPERATIONNEL_VIBE.pdf`
