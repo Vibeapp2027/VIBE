@@ -25,7 +25,7 @@ export default function VibegayDashboard() {
       title: 'Abonnement VIP VIBE',
       description: 'Accès illimité au salon audio HD et fonctionnalités avancées du Mode Fantôme.',
       price: '9.99 $ / mois',
-      url: '#boutique-vip',
+      url: '#boutique-section',
       isExternal: false,
       badge: 'Populaire'
     },
@@ -34,7 +34,7 @@ export default function VibegayDashboard() {
       title: 'Passe Événement Pride 2026',
       description: 'Billet exclusif pour les rassemblements communautaires VIBE.',
       price: '24.99 $',
-      url: '#boutique-pride-2026',
+      url: '#boutique-section',
       isExternal: false,
       badge: 'Événement'
     },
@@ -271,7 +271,7 @@ export default function VibegayDashboard() {
 
         {/* ONGLET 2 : BOUTIQUE & EXTRA LINKS */}
         {activeTab === 'boutique' && (
-          <section className="space-y-6">
+          <section id="boutique-section" className="space-y-6">
             <div>
               <h2 className="text-2xl font-bold text-white mb-1">Boutique Officielle</h2>
               <p className="text-slate-400 text-sm">Toutes les offres et liens annexes sont vérifiés pour éviter les liens cassés.</p>
@@ -279,11 +279,7 @@ export default function VibegayDashboard() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {shopItems.map((item) => (
-                <div
-                  key={item.id}
-                  id={item.isExternal ? undefined : item.url.slice(1)}
-                  className="bg-slate-800/60 border border-slate-700/80 rounded-2xl p-6 flex flex-col justify-between hover:border-purple-500/50 transition shadow-lg"
-                >
+                <div key={item.id} className="bg-slate-800/60 border border-slate-700/80 rounded-2xl p-6 flex flex-col justify-between hover:border-purple-500/50 transition shadow-lg">
                   <div>
                     <div className="flex justify-between items-start mb-3">
                       <span className="text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2.5 py-1 rounded-full">
