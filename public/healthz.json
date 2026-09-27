@@ -1,0 +1,5 @@
+{
+  "status": "ok",
+  "scope": "frontend-static",
+  "note": "Ce healthcheck confirme seulement la disponibilité des fichiers statiques. La surveillance 24/7, les alertes et les logs doivent être configurés séparément."
+}
