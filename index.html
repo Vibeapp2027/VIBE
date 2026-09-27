@@ -1,51 +1,16 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; script-src 'self' 'unsafe-inline'; connect-src 'self';">
-    <meta name="description" content="Vibe2026 - L'expérience numérique de demain">
-    <title>Vibe2026 | Accueil</title>
-    
-    <!-- ⚡ Bolt: Preconnect to Google Fonts to reduce DNS lookup and connection time -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
-</head>
-<body>
-
-    <header>
-        <nav class="navbar" aria-label="Navigation principale">
-            <div class="logo">VIBE<span>2026</span></div>
-            <ul class="nav-links">
-                <li><a href="#accueil">Accueil</a></li>
-                <li><a href="#concept">Concept</a></li>
-                <li><a href="#contact">Contact</a></li>
-            </ul>
-        </nav>
-    </header>
-
-    <main>
-        <section id="accueil" aria-labelledby="accueil-heading">
-            <div class="container">
-                <h1 id="accueil-heading">Bienvenue sur Vibe2026</h1>
-                <p>Découvrez les nouvelles tendances et l'énergie de l'année 2026.</p>
-                <a href="#concept" class="btn" aria-label="Explorer notre vision">Explorer</a>
-            </div>
-        </section>
-
-        <section id="concept" class="container" aria-labelledby="concept-heading">
-            <h2 id="concept-heading">Notre Vision</h2>
-            <p>Le projet Vibe2026 est conçu pour connecter les idées et les gens.</p>
-        </section>
-    </main>
-
-    <footer>
-        <div class="container">
-            <p>&copy; 2026 Vibe2026 - Tous droits réservés.</p>
-        </div>
-    </footer>
-
-    <script src="script.js"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https:; media-src 'self' https://cdn.pixabay.com; connect-src 'self' https:;"
+    />
+    <title>VIBE Dashboard</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>

@@ -16,6 +16,7 @@ export default function VibegayDashboard() {
   const [location, setLocation] = useState(null);
   const [sosSent, setSosSent] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
+  const sosTimerRef = useRef(null);
 
   // --- DONNÉES BOUTIQUE (LIENS SÉCURISÉS) ---
   const shopItems = [
@@ -24,7 +25,7 @@ export default function VibegayDashboard() {
       title: 'Abonnement VIP VIBE',
       description: 'Accès illimité au salon audio HD et fonctionnalités avancées du Mode Fantôme.',
       price: '9.99 $ / mois',
-      url: '/boutique/vip',
+      url: '#boutique-vip',
       isExternal: false,
       badge: 'Populaire'
     },
@@ -33,7 +34,7 @@ export default function VibegayDashboard() {
       title: 'Passe Événement Pride 2026',
       description: 'Billet exclusif pour les rassemblements communautaires VIBE.',
       price: '24.99 $',
-      url: '/boutique/pride-2026',
+      url: '#boutique-pride-2026',
       isExternal: false,
       badge: 'Événement'
     },
@@ -77,8 +78,10 @@ export default function VibegayDashboard() {
   // Déclenchement du Mode Ange (Géolocalisation d'urgence)
   const triggerModeAnge = () => {
     setAngeModalOpen(true);
+    setSosSent(false);
+    setLocation(null);
     setIsLocating(true);
-    if (navigator.geolocation) {
+    if (typeof navigator !== "undefined" && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           setLocation({
@@ -101,11 +104,19 @@ export default function VibegayDashboard() {
 
   const handleSendSOS = () => {
     setSosSent(true);
-    setTimeout(() => {
+    sosTimerRef.current = setTimeout(() => {
       setSosSent(false);
       setAngeModalOpen(false);
     }, 3000);
   };
+
+  useEffect(() => {
+    return () => {
+      if (sosTimerRef.current) {
+        clearTimeout(sosTimerRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div className={`min-h-screen transition-colors duration-300 font-sans ${
@@ -268,7 +279,11 @@ export default function VibegayDashboard() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {shopItems.map((item) => (
-                <div key={item.id} className="bg-slate-800/60 border border-slate-700/80 rounded-2xl p-6 flex flex-col justify-between hover:border-purple-500/50 transition shadow-lg">
+                <div
+                  key={item.id}
+                  id={item.isExternal ? undefined : item.url.slice(1)}
+                  className="bg-slate-800/60 border border-slate-700/80 rounded-2xl p-6 flex flex-col justify-between hover:border-purple-500/50 transition shadow-lg"
+                >
                   <div>
                     <div className="flex justify-between items-start mb-3">
                       <span className="text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2.5 py-1 rounded-full">
@@ -283,7 +298,7 @@ export default function VibegayDashboard() {
                   <a
                     href={item.url}
                     target={item.isExternal ? "_blank" : "_self"}
-                    rel={item.isExternal ? "noopener noreferrer" : ""}
+                    rel={item.isExternal ? "noopener noreferrer" : undefined}
                     className="w-full text-center py-2.5 rounded-xl font-semibold bg-slate-700 hover:bg-purple-600 text-white text-sm transition"
                   >
                     {item.isExternal ? "Visiter le lien externe ↗" : "Commander"}
