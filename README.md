@@ -93,3 +93,7 @@ Voir `/backend/README.md` pour l’ordre d’exécution et les limites d’infra
 
 - Source: `/docs/MANIFESTE_OPERATIONNEL_VIBE.md`
 - PDF: `/docs/MANIFESTE_OPERATIONNEL_VIBE.pdf`
+- Fondateur (source): `/docs/MANIFESTE_FONDATEUR_VIBE.md`
+- Fondateur (PDF): `/docs/MANIFESTE_FONDATEUR_VIBE.pdf`
+- Directeur des opérations (source): `/docs/MANIFESTE_DIRECTEUR_OPERATIONS_VIBE.md`
+- Directeur des opérations (PDF): `/docs/MANIFESTE_DIRECTEUR_OPERATIONS_VIBE.pdf`
