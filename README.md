@@ -78,3 +78,13 @@ L’UI affiche la bascule du quota gratuit vers les billets payants annuels (pai
 - Aucun secret (mot de passe, token SMTP, clé API) ne doit être commité.
 - Les permissions fortes (ex. directeur des opérations sans accès finance) nécessitent un backend RBAC.
 - Les fonctions temps réel (voix, traduction, match cross-utilisateurs) nécessitent infrastructure backend/WebSocket.
+
+## Backend minimal livré
+
+Une base backend minimale est ajoutée dans `/backend`:
+
+- `schema.sql` (schéma complet RBAC/modération/SOS/abonnements/compatibilité/notifications/audit)
+- `functions.sql` (fonctions métier clés: 2500/500, jury aléatoire de 6, sanctions progressives, pardon unique 60 CAD, sessions SOS)
+- `openapi.json` (contrat d’API minimal)
+
+Voir `/backend/README.md` pour l’ordre d’exécution et les limites d’infrastructure restantes.
