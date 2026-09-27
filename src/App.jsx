@@ -103,6 +103,9 @@ export default function VibegayDashboard() {
   };
 
   const handleSendSOS = () => {
+    if (sosTimerRef.current) {
+      clearTimeout(sosTimerRef.current);
+    }
     setSosSent(true);
     sosTimerRef.current = setTimeout(() => {
       setSosSent(false);
