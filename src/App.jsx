@@ -225,7 +225,7 @@ export default function VibegayDashboard() {
               </span>
               <h2 className="text-3xl font-bold mb-4">Le Salon VIBE</h2>
               <p className="text-slate-300 text-sm mb-8">
-                Écoutez l'ambiance sonore du salon en direct. L'audio est configuré pour éviter les rejets d'autoplay des navigateurs.
+                Écoutez l&apos;ambiance sonore du salon en direct. L&apos;audio est configuré pour éviter les rejets d&apos;autoplay des navigateurs.
               </p>
 
               {/* LECTEUR AUDIO */}
@@ -318,7 +318,7 @@ export default function VibegayDashboard() {
         {/* ONGLET 3 : GLOBE & CARTE */}
         {activeTab === 'globe' && (
           <section className="bg-slate-800/40 border border-slate-700/60 rounded-2xl p-8 text-center">
-            <h2 className="text-2xl font-bold mb-2">Carte d'Humeur Communautaire 3D</h2>
+            <h2 className="text-2xl font-bold mb-2">Carte d&apos;Humeur Communautaire 3D</h2>
             <p className="text-slate-400 text-sm mb-6">Aperçu en temps réel des interactions sur la communauté au Québec.</p>
             
             <div className="h-64 bg-slate-900 border border-slate-700 rounded-xl flex flex-col items-center justify-center relative overflow-hidden">
@@ -376,7 +376,7 @@ export default function VibegayDashboard() {
                 disabled={isLocating}
                 className="w-full py-3.5 rounded-xl font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/40 transition disabled:opacity-50"
               >
-                Envoyer le Signal d'Urgence
+                Envoyer le Signal d&apos;Urgence
               </button>
             )}
           </div>
