@@ -1,22 +1,26 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="fr">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>VIBE</title>
-  <style>
-    body, html {
-      margin: 0; padding: 0;
-      width: 100vw; height: 100vh;
-      background: #000 url('./src/bg.png') no-repeat center center fixed !important;
-      background-size: cover !important;
-      overflow: hidden;
-    }
-    #root { width: 100%; height: 100%; }
-  </style>
-</head>
-<body>
-  <div id="root"></div>
-  <script type="module" src="./src/main.jsx"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https:; media-src 'self' https://cdn.pixabay.com; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*;"
+    />
+    <meta
+      name="description"
+      content="Tableau de bord VIBE avec salon audio, boutique, mode ange SOS et indicateurs de statut."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <title>VIBE | Tableau de bord</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>
