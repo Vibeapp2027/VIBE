@@ -1,0 +1,179 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "VIBE Minimal Backend API",
+    "version": "0.1.0",
+    "description": "Minimal contract covering SOS, moderation tribunal, subscriptions, and compatibility flows."
+  },
+  "servers": [
+    { "url": "https://api.vibegay.ca" }
+  ],
+  "paths": {
+    "/v1/onboarding/allocate": {
+      "post": {
+        "summary": "Allocate onboarding offer with 2500/500 server-side rule",
+        "responses": {
+          "200": {
+            "description": "Offer allocated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "offerType": { "type": "string", "enum": ["free", "annual_99_single", "waitlist"] },
+                    "requiresPayment": { "type": "boolean" },
+                    "annualPriceCad": { "type": "number" },
+                    "annualRemaining": { "type": "integer" }
+                  },
+                  "required": ["offerType", "requiresPayment", "annualPriceCad", "annualRemaining"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sos/sessions": {
+      "post": {
+        "summary": "Start SOS session",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "consentVoiceStorage": { "type": "boolean" },
+                  "trustedContacts": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "maxItems": 5
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "SOS session created" } }
+      }
+    },
+    "/v1/sos/sessions/{sessionId}/heartbeat": {
+      "post": {
+        "summary": "Send SOS heartbeat",
+        "parameters": [
+          { "name": "sessionId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lat": { "type": "number" },
+                  "lng": { "type": "number" },
+                  "hasVoiceCapture": { "type": "boolean" },
+                  "payload": { "type": "object" }
+                },
+                "required": ["lat", "lng", "hasVoiceCapture"]
+              }
+            }
+          }
+        },
+        "responses": { "204": { "description": "Heartbeat accepted" } }
+      }
+    },
+    "/v1/sos/sessions/{sessionId}/close": {
+      "post": {
+        "summary": "Close SOS session",
+        "parameters": [
+          { "name": "sessionId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": { "204": { "description": "Session closed" } }
+      }
+    },
+    "/v1/moderation/reports": {
+      "post": {
+        "summary": "Create moderation report",
+        "responses": { "201": { "description": "Report created" } }
+      }
+    },
+    "/v1/moderation/cases/{caseId}/assign-jury": {
+      "post": {
+        "summary": "Assign 6 random anonymous jurors",
+        "parameters": [
+          { "name": "caseId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": { "200": { "description": "Jury assigned" } }
+      }
+    },
+    "/v1/moderation/cases/{caseId}/vote": {
+      "post": {
+        "summary": "Submit juror vote",
+        "parameters": [
+          { "name": "caseId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "verdict": { "type": "string", "enum": ["dismissed", "warning", "suspend_1_week", "suspend_2_weeks", "ban_lifetime"] },
+                  "rationale": { "type": "string" }
+                },
+                "required": ["verdict"]
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Vote recorded" } }
+      }
+    },
+    "/v1/moderation/pardons": {
+      "post": {
+        "summary": "Request one-time 60 CAD pardon",
+        "responses": { "201": { "description": "Pardon requested" } }
+      }
+    },
+    "/v1/compatibility/profiles": {
+      "get": {
+        "summary": "List profiles with compatibility score",
+        "responses": { "200": { "description": "Compatibility list" } }
+      }
+    },
+    "/v1/compatibility/{targetUserId}": {
+      "get": {
+        "summary": "Get compatibility detail with explanation",
+        "parameters": [
+          { "name": "targetUserId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": { "200": { "description": "Compatibility detail" } }
+      }
+    },
+    "/v1/compatibility/{targetUserId}/decision": {
+      "post": {
+        "summary": "Keep or reject low-compatibility profile",
+        "parameters": [
+          { "name": "targetUserId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "decision": { "type": "string", "enum": ["keep", "reject"] }
+                },
+                "required": ["decision"]
+              }
+            }
+          }
+        },
+        "responses": { "204": { "description": "Decision saved" } }
+      }
+    }
+  }
+}
