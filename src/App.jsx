@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { appConfig } from './config';
 import { orderProfiles } from './discovery';
+import { canStartSos, SOS_AUDIO_DURATION_MS } from './sosPolicy';
 
 const SERVICE_STATE = {
   UNCONFIGURED: 'non configuré',
@@ -173,6 +174,10 @@ export default function VibegayDashboard() {
   const sosHeartbeatRef = useRef(null);
   const geoWatchRef = useRef(null);
   const mediaRecorderRef = useRef(null);
+  const voiceTimerRef = useRef(null);
+  const emergencyGenerationRef = useRef(0);
+  const emergencyActiveRef = useRef(false);
+  const [sosConsent, setSosConsent] = useState({ audio: false, location: false, sharing: false });
   const mediaStreamRef = useRef(null);
   const tripleTapRef = useRef({ taps: 0, firstAt: 0 });
   const [isEmergencyArmed, setIsEmergencyArmed] = useState(false);
@@ -298,6 +303,8 @@ export default function VibegayDashboard() {
     if (geoWatchRef.current !== null && isBrowser && window.navigator.geolocation) {
       window.navigator.geolocation.clearWatch(geoWatchRef.current);
     }
+    clearTimeout(voiceTimerRef.current);
+    emergencyActiveRef.current = false;
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
@@ -451,7 +458,7 @@ export default function VibegayDashboard() {
     setTrustedContacts((previous) => previous.filter((contact) => contact !== contactToRemove));
   };
 
-  const startVoiceCapture = async () => {
+  const startVoiceCapture = async (generation) => {
     if (!isBrowser || !window.navigator.mediaDevices?.getUserMedia || typeof window.MediaRecorder === 'undefined') {
       setVoiceCaptureState(SERVICE_STATE.UNCONFIGURED);
       return;
@@ -459,21 +466,35 @@ export default function VibegayDashboard() {
 
     try {
       const stream = await window.navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!emergencyActiveRef.current || generation !== emergencyGenerationRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       mediaStreamRef.current = stream;
       const recorder = new window.MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
       recorder.start(1000);
+      voiceTimerRef.current = setTimeout(() => {
+        if (recorder.state !== 'inactive') recorder.stop();
+        stream.getTracks().forEach((track) => track.stop());
+        setIsRecordingVoice(false);
+      }, SOS_AUDIO_DURATION_MS);
       setIsRecordingVoice(true);
       setVoiceCaptureState(SERVICE_STATE.UP);
       recorder.onstop = () => {
         setIsRecordingVoice(false);
       };
     } catch {
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      setIsRecordingVoice(false);
       setVoiceCaptureState(SERVICE_STATE.DOWN);
     }
   };
 
   const stopEmergencySession = (message) => {
+    emergencyActiveRef.current = false;
+    emergencyGenerationRef.current += 1;
+    clearTimeout(voiceTimerRef.current);
     if (sosHeartbeatRef.current) {
       clearInterval(sosHeartbeatRef.current);
       sosHeartbeatRef.current = null;
@@ -482,6 +503,8 @@ export default function VibegayDashboard() {
       window.navigator.geolocation.clearWatch(geoWatchRef.current);
       geoWatchRef.current = null;
     }
+    clearTimeout(voiceTimerRef.current);
+    emergencyActiveRef.current = false;
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
@@ -498,14 +521,17 @@ export default function VibegayDashboard() {
   };
 
   const startEmergencySession = async () => {
-    if (trustedContacts.length === 0) {
+    if (emergencyActiveRef.current) return;
+    if (!canStartSos(trustedContacts, sosConsent)) {
       setSosState(SOS_STATE.FAILED);
-      setSosMessage('Ajoutez au moins un contact de confiance avant le triple tape.');
+      setSosMessage('Choisissez vos contacts et acceptez séparément les trois autorisations SOS.');
       return;
     }
 
+    emergencyActiveRef.current = true;
+    const generation = ++emergencyGenerationRef.current;
     setSosState(SOS_STATE.SENDING);
-    setSosMessage('Session SOS active: suivi GPS + capture vocale locale démarrés.');
+    setSosMessage('Capture locale de 30 secondes maximum. Transmission audio non implémentée : aucun contact alerté par cet enregistrement.');
     setIsEmergencyArmed(true);
     setGpsTrackingState(SERVICE_STATE.CHECKING);
     setVoiceCaptureState(SERVICE_STATE.CHECKING);
@@ -536,7 +562,8 @@ export default function VibegayDashboard() {
       { enableHighAccuracy: true, maximumAge: 0, timeout: appConfig.geoTimeoutMs },
     );
 
-    await startVoiceCapture();
+    await startVoiceCapture(generation);
+    if (!emergencyActiveRef.current || generation !== emergencyGenerationRef.current) return;
 
     const emitRealtimeEvent = async () => {
       setSosRealtimeLogCount((previous) => previous + 1);
@@ -545,7 +572,7 @@ export default function VibegayDashboard() {
         return;
       }
       try {
-        await fetch(appConfig.sosApiUrl, {
+        const response = await fetch(appConfig.sosApiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -556,13 +583,18 @@ export default function VibegayDashboard() {
             recording: isRecordingVoice,
           }),
         });
-        setSosState(SOS_STATE.CONFIRMED);
+        if (!response.ok) throw new Error('SOS request rejected');
+        if (emergencyActiveRef.current && generation === emergencyGenerationRef.current) {
+          setSosState(SOS_STATE.SIMULATED);
+          setSosMessage('Métadonnées acceptées par le serveur ; réception par les contacts et transmission audio non vérifiées.');
+        }
       } catch {
-        setSosState(SOS_STATE.FAILED);
+        if (emergencyActiveRef.current && generation === emergencyGenerationRef.current) setSosState(SOS_STATE.FAILED);
       }
     };
 
     await emitRealtimeEvent();
+    if (!emergencyActiveRef.current || generation !== emergencyGenerationRef.current) return;
     sosHeartbeatRef.current = setInterval(emitRealtimeEvent, appConfig.sosHeartbeatMs);
   };
 
@@ -1136,9 +1168,23 @@ export default function VibegayDashboard() {
               </div>
             )}
 
+            <fieldset disabled={isEmergencyArmed} className="mb-4 space-y-2 text-xs border border-slate-700 rounded-xl p-3">
+              <legend>Consentements SOS — facultatifs pour utiliser le reste du site</legend>
+              {[
+                ['audio', 'J’autorise la capture de ma voix pendant 30 secondes après activation.'],
+                ['location', 'J’autorise le suivi de ma localisation jusqu’à l’arrêt de la session.'],
+                ['sharing', 'Je choisis les contacts ci-dessus comme destinataires des données SOS lorsque le service sera opérationnel.'],
+              ].map(([key, label]) => (
+                <label key={key} className="flex items-start gap-2">
+                  <input type="checkbox" checked={sosConsent[key]} onChange={(event) => setSosConsent((previous) => ({ ...previous, [key]: event.target.checked }))} />
+                  {label}
+                </label>
+              ))}
+              <p>Prototype : l’audio n’est ni transmis ni sauvegardé. La purge serveur 24 h après clôture, plafonnée à 72 h après activation, reste à implémenter. Ne remplace pas le 911.</p>
+            </fieldset>
             <button
               onClick={handleSendSOS}
-              disabled={isLocating || sosState === SOS_STATE.SENDING}
+              disabled={!isEmergencyArmed && (isLocating || sosState === SOS_STATE.SENDING)}
               className="w-full py-3.5 rounded-xl font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/40 transition disabled:opacity-50"
             >
               {isEmergencyArmed ? 'Arrêter la session SOS' : sosState === SOS_STATE.SENDING ? 'Activation en cours...' : 'Activer sans triple tape'}
