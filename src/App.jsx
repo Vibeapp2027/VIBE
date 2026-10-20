@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { appConfig } from './config';
+import { orderProfiles } from './discovery';
 
 const SERVICE_STATE = {
   UNCONFIGURED: 'non configuré',
@@ -152,6 +153,7 @@ async function checkService(url, timeoutMs, signal) {
 
 export default function VibegayDashboard() {
   const [activeTab, setActiveTab] = useState('salon');
+  const [discoveryMode, setDiscoveryMode] = useState('all');
   const [ghostMode, setGhostMode] = useState(false);
   const [revealedProfiles, setRevealedProfiles] = useState({});
   const [angeModalOpen, setAngeModalOpen] = useState(false);
@@ -853,8 +855,26 @@ export default function VibegayDashboard() {
             {profileNotice && <div className="p-3 text-sm rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-200">{profileNotice}</div>}
             {matchNotice && <div className="p-3 text-sm rounded-xl bg-fuchsia-500/20 border border-fuchsia-500/40 text-fuchsia-200">{matchNotice}</div>}
 
+            <fieldset className="rounded-xl border border-slate-700 p-4">
+              <legend className="px-2 font-semibold">Quels profils souhaites-tu voir ?</legend>
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-2">
+                  <input type="radio" name="discovery" value="compatible" checked={discoveryMode === 'compatible'} onChange={() => setDiscoveryMode('compatible')} />
+                  Les plus compatibles d’abord
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="radio" name="discovery" value="all" checked={discoveryMode === 'all'} onChange={() => setDiscoveryMode('all')} />
+                  Tous les profils
+                </label>
+              </div>
+              <p className="mt-3 text-xs text-slate-400" role="status">
+                Démonstration : profils fictifs et scores fixes, sans calcul IA ni synchronisation en temps réel.
+                Le tri ne masque aucun profil. Choix modifiable à tout moment pour cette session.
+                Aucune donnée SOS, cardiaque ou de déplacement n’est utilisée pour ce classement.
+              </p>
+            </fieldset>
             <div className="grid md:grid-cols-3 gap-4">
-              {PROFILES.map((profile) => {
+              {orderProfiles(PROFILES, PROFILE_COMPATIBILITY, discoveryMode).map((profile) => {
                 const isRevealed = revealedProfiles[profile.id];
                 const hideProfile = ghostMode && !isRevealed;
 
@@ -870,7 +890,7 @@ export default function VibegayDashboard() {
                     </div>
                     <h3 className="font-bold mt-3">{hideProfile ? 'Profil masqué' : profile.name}</h3>
                     <p className="text-xs text-slate-400 mb-3">{hideProfile ? 'Identité cachée en mode fantôme' : profile.mood}</p>
-                    <p className="text-xs text-slate-300 mb-1">Compatibilité: <strong>{PROFILE_COMPATIBILITY[profile.id]}%</strong></p>
+                    <p className="text-xs text-slate-300 mb-1">Compatibilité de démonstration : <strong>{PROFILE_COMPATIBILITY[profile.id]}%</strong></p>
                     <p className="text-xs text-slate-400 mb-3">{PROFILE_COMPATIBILITY_TEXT[profile.id]}</p>
                     <p className="text-[11px] text-slate-400 mb-3">Vues de votre profil par ce compte: {profileStats[profile.id].views}</p>
                     <div className="flex gap-2">
