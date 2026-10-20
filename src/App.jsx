@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { appConfig } from './config';
+import { orderProfiles } from './discovery';
+import { canStartSos } from './sosPolicy';
+import { captureSosAudio } from './sosCapture';
 
 const SERVICE_STATE = {
   UNCONFIGURED: 'non configuré',
@@ -152,6 +155,7 @@ async function checkService(url, timeoutMs, signal) {
 
 export default function VibegayDashboard() {
   const [activeTab, setActiveTab] = useState('salon');
+  const [discoveryMode, setDiscoveryMode] = useState('all');
   const [ghostMode, setGhostMode] = useState(false);
   const [revealedProfiles, setRevealedProfiles] = useState({});
   const [angeModalOpen, setAngeModalOpen] = useState(false);
@@ -170,8 +174,10 @@ export default function VibegayDashboard() {
   const sosResetTimerRef = useRef(null);
   const sosHeartbeatRef = useRef(null);
   const geoWatchRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const mediaStreamRef = useRef(null);
+  const audioAbortRef = useRef(null);
+  const emergencyGenerationRef = useRef(0);
+  const emergencyActiveRef = useRef(false);
+  const [sosConsent, setSosConsent] = useState({ audio: false, location: false, sharing: false });
   const tripleTapRef = useRef({ taps: 0, firstAt: 0 });
   const [isEmergencyArmed, setIsEmergencyArmed] = useState(false);
   const [trustedContactInput, setTrustedContactInput] = useState('');
@@ -296,12 +302,8 @@ export default function VibegayDashboard() {
     if (geoWatchRef.current !== null && isBrowser && window.navigator.geolocation) {
       window.navigator.geolocation.clearWatch(geoWatchRef.current);
     }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-    }
+    audioAbortRef.current?.abort();
+    emergencyActiveRef.current = false;
   }, []);
 
   const globalSystemStatus = useMemo(() => {
@@ -449,29 +451,39 @@ export default function VibegayDashboard() {
     setTrustedContacts((previous) => previous.filter((contact) => contact !== contactToRemove));
   };
 
-  const startVoiceCapture = async () => {
+  const startVoiceCapture = async (generation) => {
     if (!isBrowser || !window.navigator.mediaDevices?.getUserMedia || typeof window.MediaRecorder === 'undefined') {
       setVoiceCaptureState(SERVICE_STATE.UNCONFIGURED);
       return;
     }
 
     try {
-      const stream = await window.navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaStreamRef.current = stream;
-      const recorder = new window.MediaRecorder(stream);
-      mediaRecorderRef.current = recorder;
-      recorder.start(1000);
-      setIsRecordingVoice(true);
-      setVoiceCaptureState(SERVICE_STATE.UP);
-      recorder.onstop = () => {
-        setIsRecordingVoice(false);
-      };
+      const controller = new AbortController();
+      audioAbortRef.current = controller;
+      const capture = await captureSosAudio({
+        mediaDevices: window.navigator.mediaDevices,
+        Recorder: window.MediaRecorder,
+        signal: controller.signal,
+        onStop: () => {
+          if (generation === emergencyGenerationRef.current) setIsRecordingVoice(false);
+        },
+      });
+      if (capture && emergencyActiveRef.current && generation === emergencyGenerationRef.current) {
+        setIsRecordingVoice(true);
+        setVoiceCaptureState(SERVICE_STATE.UP);
+      }
     } catch {
-      setVoiceCaptureState(SERVICE_STATE.DOWN);
+      if (generation === emergencyGenerationRef.current) {
+        setIsRecordingVoice(false);
+        setVoiceCaptureState(SERVICE_STATE.DOWN);
+      }
     }
   };
 
   const stopEmergencySession = (message) => {
+    emergencyActiveRef.current = false;
+    emergencyGenerationRef.current += 1;
+    audioAbortRef.current?.abort();
     if (sosHeartbeatRef.current) {
       clearInterval(sosHeartbeatRef.current);
       sosHeartbeatRef.current = null;
@@ -479,13 +491,6 @@ export default function VibegayDashboard() {
     if (geoWatchRef.current !== null && isBrowser && window.navigator.geolocation) {
       window.navigator.geolocation.clearWatch(geoWatchRef.current);
       geoWatchRef.current = null;
-    }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      mediaStreamRef.current = null;
     }
     setIsRecordingVoice(false);
     setIsEmergencyArmed(false);
@@ -496,14 +501,17 @@ export default function VibegayDashboard() {
   };
 
   const startEmergencySession = async () => {
-    if (trustedContacts.length === 0) {
+    if (emergencyActiveRef.current) return;
+    if (!canStartSos(trustedContacts, sosConsent)) {
       setSosState(SOS_STATE.FAILED);
-      setSosMessage('Ajoutez au moins un contact de confiance avant le triple tape.');
+      setSosMessage('Choisissez vos contacts et acceptez séparément les trois autorisations SOS.');
       return;
     }
 
+    emergencyActiveRef.current = true;
+    const generation = ++emergencyGenerationRef.current;
     setSosState(SOS_STATE.SENDING);
-    setSosMessage('Session SOS active: suivi GPS + capture vocale locale démarrés.');
+    setSosMessage('Capture locale de 30 secondes maximum. Transmission audio non implémentée : aucun contact alerté par cet enregistrement.');
     setIsEmergencyArmed(true);
     setGpsTrackingState(SERVICE_STATE.CHECKING);
     setVoiceCaptureState(SERVICE_STATE.CHECKING);
@@ -534,7 +542,8 @@ export default function VibegayDashboard() {
       { enableHighAccuracy: true, maximumAge: 0, timeout: appConfig.geoTimeoutMs },
     );
 
-    await startVoiceCapture();
+    await startVoiceCapture(generation);
+    if (!emergencyActiveRef.current || generation !== emergencyGenerationRef.current) return;
 
     const emitRealtimeEvent = async () => {
       setSosRealtimeLogCount((previous) => previous + 1);
@@ -543,7 +552,7 @@ export default function VibegayDashboard() {
         return;
       }
       try {
-        await fetch(appConfig.sosApiUrl, {
+        const response = await fetch(appConfig.sosApiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -554,13 +563,18 @@ export default function VibegayDashboard() {
             recording: isRecordingVoice,
           }),
         });
-        setSosState(SOS_STATE.CONFIRMED);
+        if (!response.ok) throw new Error('SOS request rejected');
+        if (emergencyActiveRef.current && generation === emergencyGenerationRef.current) {
+          setSosState(SOS_STATE.SIMULATED);
+          setSosMessage('Métadonnées acceptées par le serveur ; réception par les contacts et transmission audio non vérifiées.');
+        }
       } catch {
-        setSosState(SOS_STATE.FAILED);
+        if (emergencyActiveRef.current && generation === emergencyGenerationRef.current) setSosState(SOS_STATE.FAILED);
       }
     };
 
     await emitRealtimeEvent();
+    if (!emergencyActiveRef.current || generation !== emergencyGenerationRef.current) return;
     sosHeartbeatRef.current = setInterval(emitRealtimeEvent, appConfig.sosHeartbeatMs);
   };
 
@@ -853,8 +867,26 @@ export default function VibegayDashboard() {
             {profileNotice && <div className="p-3 text-sm rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-200">{profileNotice}</div>}
             {matchNotice && <div className="p-3 text-sm rounded-xl bg-fuchsia-500/20 border border-fuchsia-500/40 text-fuchsia-200">{matchNotice}</div>}
 
+            <fieldset className="rounded-xl border border-slate-700 p-4">
+              <legend className="px-2 font-semibold">Quels profils souhaites-tu voir ?</legend>
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-2">
+                  <input type="radio" name="discovery" value="compatible" checked={discoveryMode === 'compatible'} onChange={() => setDiscoveryMode('compatible')} />
+                  Les plus compatibles d’abord
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="radio" name="discovery" value="all" checked={discoveryMode === 'all'} onChange={() => setDiscoveryMode('all')} />
+                  Tous les profils
+                </label>
+              </div>
+              <p className="mt-3 text-xs text-slate-400" role="status">
+                Démonstration : profils fictifs et scores fixes, sans calcul IA ni synchronisation en temps réel.
+                Le tri ne masque aucun profil. Choix modifiable à tout moment pour cette session.
+                Aucune donnée SOS, cardiaque ou de déplacement n’est utilisée pour ce classement.
+              </p>
+            </fieldset>
             <div className="grid md:grid-cols-3 gap-4">
-              {PROFILES.map((profile) => {
+              {orderProfiles(PROFILES, PROFILE_COMPATIBILITY, discoveryMode).map((profile) => {
                 const isRevealed = revealedProfiles[profile.id];
                 const hideProfile = ghostMode && !isRevealed;
 
@@ -870,7 +902,7 @@ export default function VibegayDashboard() {
                     </div>
                     <h3 className="font-bold mt-3">{hideProfile ? 'Profil masqué' : profile.name}</h3>
                     <p className="text-xs text-slate-400 mb-3">{hideProfile ? 'Identité cachée en mode fantôme' : profile.mood}</p>
-                    <p className="text-xs text-slate-300 mb-1">Compatibilité: <strong>{PROFILE_COMPATIBILITY[profile.id]}%</strong></p>
+                    <p className="text-xs text-slate-300 mb-1">Compatibilité de démonstration : <strong>{PROFILE_COMPATIBILITY[profile.id]}%</strong></p>
                     <p className="text-xs text-slate-400 mb-3">{PROFILE_COMPATIBILITY_TEXT[profile.id]}</p>
                     <p className="text-[11px] text-slate-400 mb-3">Vues de votre profil par ce compte: {profileStats[profile.id].views}</p>
                     <div className="flex gap-2">
@@ -1116,9 +1148,23 @@ export default function VibegayDashboard() {
               </div>
             )}
 
+            <fieldset disabled={isEmergencyArmed} className="mb-4 space-y-2 text-xs border border-slate-700 rounded-xl p-3">
+              <legend>Consentements SOS — facultatifs pour utiliser le reste du site</legend>
+              {[
+                ['audio', 'J’autorise la capture de ma voix pendant 30 secondes après activation.'],
+                ['location', 'J’autorise le suivi de ma localisation jusqu’à l’arrêt de la session.'],
+                ['sharing', 'Je choisis les contacts ci-dessus comme destinataires des données SOS lorsque le service sera opérationnel.'],
+              ].map(([key, label]) => (
+                <label key={key} className="flex items-start gap-2">
+                  <input type="checkbox" checked={sosConsent[key]} onChange={(event) => setSosConsent((previous) => ({ ...previous, [key]: event.target.checked }))} />
+                  {label}
+                </label>
+              ))}
+              <p>Prototype : l’audio n’est ni transmis ni sauvegardé. La purge serveur 24 h après clôture, plafonnée à 72 h après activation, reste à implémenter. Ne remplace pas le 911.</p>
+            </fieldset>
             <button
               onClick={handleSendSOS}
-              disabled={isLocating || sosState === SOS_STATE.SENDING}
+              disabled={!isEmergencyArmed && (isLocating || sosState === SOS_STATE.SENDING)}
               className="w-full py-3.5 rounded-xl font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/40 transition disabled:opacity-50"
             >
               {isEmergencyArmed ? 'Arrêter la session SOS' : sosState === SOS_STATE.SENDING ? 'Activation en cours...' : 'Activer sans triple tape'}
