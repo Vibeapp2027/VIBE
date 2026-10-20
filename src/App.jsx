@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { appConfig } from './config';
 import { orderProfiles } from './discovery';
-import { canStartSos, SOS_AUDIO_DURATION_MS } from './sosPolicy';
+import { canStartSos } from './sosPolicy';
+import { captureSosAudio } from './sosCapture';
 
 const SERVICE_STATE = {
   UNCONFIGURED: 'non configuré',
@@ -173,12 +174,10 @@ export default function VibegayDashboard() {
   const sosResetTimerRef = useRef(null);
   const sosHeartbeatRef = useRef(null);
   const geoWatchRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const voiceTimerRef = useRef(null);
+  const audioAbortRef = useRef(null);
   const emergencyGenerationRef = useRef(0);
   const emergencyActiveRef = useRef(false);
   const [sosConsent, setSosConsent] = useState({ audio: false, location: false, sharing: false });
-  const mediaStreamRef = useRef(null);
   const tripleTapRef = useRef({ taps: 0, firstAt: 0 });
   const [isEmergencyArmed, setIsEmergencyArmed] = useState(false);
   const [trustedContactInput, setTrustedContactInput] = useState('');
@@ -303,14 +302,8 @@ export default function VibegayDashboard() {
     if (geoWatchRef.current !== null && isBrowser && window.navigator.geolocation) {
       window.navigator.geolocation.clearWatch(geoWatchRef.current);
     }
-    clearTimeout(voiceTimerRef.current);
+    audioAbortRef.current?.abort();
     emergencyActiveRef.current = false;
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-    }
   }, []);
 
   const globalSystemStatus = useMemo(() => {
@@ -465,36 +458,32 @@ export default function VibegayDashboard() {
     }
 
     try {
-      const stream = await window.navigator.mediaDevices.getUserMedia({ audio: true });
-      if (!emergencyActiveRef.current || generation !== emergencyGenerationRef.current) {
-        stream.getTracks().forEach((track) => track.stop());
-        return;
+      const controller = new AbortController();
+      audioAbortRef.current = controller;
+      const capture = await captureSosAudio({
+        mediaDevices: window.navigator.mediaDevices,
+        Recorder: window.MediaRecorder,
+        signal: controller.signal,
+        onStop: () => {
+          if (generation === emergencyGenerationRef.current) setIsRecordingVoice(false);
+        },
+      });
+      if (capture && emergencyActiveRef.current && generation === emergencyGenerationRef.current) {
+        setIsRecordingVoice(true);
+        setVoiceCaptureState(SERVICE_STATE.UP);
       }
-      mediaStreamRef.current = stream;
-      const recorder = new window.MediaRecorder(stream);
-      mediaRecorderRef.current = recorder;
-      recorder.start(1000);
-      voiceTimerRef.current = setTimeout(() => {
-        if (recorder.state !== 'inactive') recorder.stop();
-        stream.getTracks().forEach((track) => track.stop());
-        setIsRecordingVoice(false);
-      }, SOS_AUDIO_DURATION_MS);
-      setIsRecordingVoice(true);
-      setVoiceCaptureState(SERVICE_STATE.UP);
-      recorder.onstop = () => {
-        setIsRecordingVoice(false);
-      };
     } catch {
-      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
-      setIsRecordingVoice(false);
-      setVoiceCaptureState(SERVICE_STATE.DOWN);
+      if (generation === emergencyGenerationRef.current) {
+        setIsRecordingVoice(false);
+        setVoiceCaptureState(SERVICE_STATE.DOWN);
+      }
     }
   };
 
   const stopEmergencySession = (message) => {
     emergencyActiveRef.current = false;
     emergencyGenerationRef.current += 1;
-    clearTimeout(voiceTimerRef.current);
+    audioAbortRef.current?.abort();
     if (sosHeartbeatRef.current) {
       clearInterval(sosHeartbeatRef.current);
       sosHeartbeatRef.current = null;
@@ -502,15 +491,6 @@ export default function VibegayDashboard() {
     if (geoWatchRef.current !== null && isBrowser && window.navigator.geolocation) {
       window.navigator.geolocation.clearWatch(geoWatchRef.current);
       geoWatchRef.current = null;
-    }
-    clearTimeout(voiceTimerRef.current);
-    emergencyActiveRef.current = false;
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      mediaStreamRef.current = null;
     }
     setIsRecordingVoice(false);
     setIsEmergencyArmed(false);
