@@ -21,4 +21,30 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     });
+
+    // 🎨 Palette: Dynamically update aria-current on scroll for better accessibility and UX
+    const observerOptions = {
+        root: null,
+        rootMargin: '0px',
+        threshold: 0.5
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const id = entry.target.getAttribute('id');
+                if (id) {
+                    const activeLink = document.querySelector(`.nav-links a[href="#${id}"]`);
+                    if (activeLink) {
+                        navLinks.forEach(nav => nav.removeAttribute('aria-current'));
+                        activeLink.setAttribute('aria-current', 'true');
+                    }
+                }
+            }
+        });
+    }, observerOptions);
+
+    document.querySelectorAll('main section').forEach(section => {
+        observer.observe(section);
+    });
 });
