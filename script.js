@@ -21,4 +21,29 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     });
+
+    // 🎨 Palette: Synchronize aria-current based on scroll position for better accessibility
+    const observerOptions = {
+        root: null,
+        rootMargin: '0px',
+        threshold: 0.5
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const id = entry.target.getAttribute('id');
+                navLinks.forEach(link => {
+                    if (link.getAttribute('href') === `#${id}`) {
+                        link.setAttribute('aria-current', 'true');
+                    } else {
+                        link.removeAttribute('aria-current');
+                    }
+                });
+            }
+        });
+    }, observerOptions);
+
+    const sections = document.querySelectorAll('main section');
+    sections.forEach(section => observer.observe(section));
 });
