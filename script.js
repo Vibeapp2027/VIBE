@@ -10,9 +10,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (targetElement) {
                     targetElement.scrollIntoView({ behavior: 'smooth' });
 
-                    navLinks.forEach(nav => nav.removeAttribute('aria-current'));
-                    this.setAttribute('aria-current', 'true');
-
                     targetElement.setAttribute('tabindex', '-1');
                     targetElement.focus();
 
@@ -20,5 +17,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         });
+    });
+
+    const observerOptions = {
+        root: null,
+        rootMargin: '0px',
+        threshold: 0.5
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const id = entry.target.getAttribute('id');
+                navLinks.forEach(link => {
+                    link.removeAttribute('aria-current');
+                    if (link.getAttribute('href') === `#${id}`) {
+                        link.setAttribute('aria-current', 'true');
+                    }
+                });
+            }
+        });
+    }, observerOptions);
+
+    document.querySelectorAll('main section').forEach(section => {
+        observer.observe(section);
     });
 });
