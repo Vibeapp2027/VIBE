@@ -21,4 +21,31 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     });
+
+    // 🎨 Palette: Dynamically sync aria-current on scroll using IntersectionObserver
+    const sections = document.querySelectorAll('main section[id]');
+    if (sections.length > 0) {
+        const observerOptions = {
+            root: null,
+            rootMargin: '0px',
+            threshold: 0.5
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const id = entry.target.getAttribute('id');
+                    const activeLink = document.querySelector(`.nav-links a[href="#${id}"]`);
+                    if (activeLink) {
+                        navLinks.forEach(nav => nav.removeAttribute('aria-current'));
+                        activeLink.setAttribute('aria-current', 'true');
+                    }
+                }
+            });
+        }, observerOptions);
+
+        sections.forEach(section => {
+            observer.observe(section);
+        });
+    }
 });
