@@ -1,24 +1,28 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const navLinks = document.querySelectorAll('.nav-links a[href^="#"]');
+    const navContainer = document.querySelector('.nav-links');
+    if (!navContainer) return;
 
-    navLinks.forEach(link => {
-        link.addEventListener('click', function(e) {
-            e.preventDefault();
-            const targetId = this.getAttribute('href');
-            if (targetId && targetId.startsWith('#')) {
-                const targetElement = document.querySelector(targetId);
-                if (targetElement) {
-                    targetElement.scrollIntoView({ behavior: 'smooth' });
+    // ⚡ Bolt: Use event delegation to reduce memory overhead from multiple event listeners
+    navContainer.addEventListener('click', function(e) {
+        const link = e.target.closest('a[href^="#"]');
+        if (!link) return;
 
-                    navLinks.forEach(nav => nav.removeAttribute('aria-current'));
-                    this.setAttribute('aria-current', 'true');
+        e.preventDefault();
+        const targetId = link.getAttribute('href');
+        if (targetId && targetId.startsWith('#')) {
+            const targetElement = document.querySelector(targetId);
+            if (targetElement) {
+                targetElement.scrollIntoView({ behavior: 'smooth' });
 
-                    targetElement.setAttribute('tabindex', '-1');
-                    targetElement.focus();
+                const navLinks = navContainer.querySelectorAll('a[href^="#"]');
+                navLinks.forEach(nav => nav.removeAttribute('aria-current'));
+                link.setAttribute('aria-current', 'true');
 
-                    window.history.pushState(null, '', targetId);
-                }
+                targetElement.setAttribute('tabindex', '-1');
+                targetElement.focus();
+
+                window.history.pushState(null, '', targetId);
             }
-        });
+        }
     });
 });
