@@ -21,4 +21,32 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     });
+
+    // Intersection Observer for scroll-based ARIA synchronization
+    const observerOptions = {
+        root: null,
+        rootMargin: '0px',
+        threshold: 0.5
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const id = entry.target.getAttribute('id');
+                if (id) {
+                    navLinks.forEach(link => {
+                        link.removeAttribute('aria-current');
+                        if (link.getAttribute('href') === `#${id}`) {
+                            link.setAttribute('aria-current', 'true');
+                        }
+                    });
+                }
+            }
+        });
+    }, observerOptions);
+
+    const sections = document.querySelectorAll('main section');
+    sections.forEach(section => {
+        observer.observe(section);
+    });
 });
