@@ -1,6 +1,30 @@
 document.addEventListener('DOMContentLoaded', () => {
     const navLinks = document.querySelectorAll('.nav-links a[href^="#"]');
 
+    const observerOptions = {
+        root: null,
+        rootMargin: '0px',
+        threshold: 0.5
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const id = entry.target.getAttribute('id');
+                navLinks.forEach(nav => {
+                    if (nav.getAttribute('href') === `#${id}`) {
+                        nav.setAttribute('aria-current', 'true');
+                    } else {
+                        nav.removeAttribute('aria-current');
+                    }
+                });
+            }
+        });
+    }, observerOptions);
+
+    const sections = document.querySelectorAll('main section');
+    sections.forEach(section => observer.observe(section));
+
     navLinks.forEach(link => {
         link.addEventListener('click', function(e) {
             e.preventDefault();
