@@ -21,4 +21,33 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     });
+
+    // 🎨 Palette: Synchronize ARIA state on manual scroll using IntersectionObserver
+    const sections = document.querySelectorAll('main section[id]');
+    const observerOptions = {
+        root: null,
+        rootMargin: '0px',
+        threshold: 0.5
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const currentId = entry.target.getAttribute('id');
+                const allNavLinks = document.querySelectorAll('.nav-links a[href^="#"]');
+
+                allNavLinks.forEach(link => {
+                    link.removeAttribute('aria-current');
+                    const href = link.getAttribute('href');
+                    if (href && href.includes(currentId)) {
+                        link.setAttribute('aria-current', 'true');
+                    }
+                });
+            }
+        });
+    }, observerOptions);
+
+    sections.forEach(section => {
+        observer.observe(section);
+    });
 });
