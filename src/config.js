@@ -17,6 +17,7 @@ const toNonNegativeInt = (value, fallback) => {
 };
 
 export const appConfig = {
+  apiBaseUrl: env.VITE_API_BASE_URL || '',
   apiHealthUrl: env.VITE_API_HEALTH_URL || '',
   supabaseHealthUrl: env.VITE_SUPABASE_HEALTH_URL || '',
   loi25PolicyUrl: env.VITE_LOI25_POLICY_URL || '',
