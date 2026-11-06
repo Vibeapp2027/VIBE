@@ -1,138 +1,67 @@
-# VIBE Production Deployment Guide
+# VIBE — déploiement de production
 
-This document explains the exact production setup for vibegay.ca using the VIBE frontend and the backend API.
+Ce guide distingue le site public (frontend) du serveur d’API. Les fichiers du dépôt ne peuvent pas créer les DNS, certificats TLS ni les secrets de vos comptes d’hébergement.
 
-## 1. Frontend: VIBE on Cloudflare Pages
+## Frontend — Cloudflare Pages
 
-In Cloudflare Pages:
-- Import the repo: `Vibeapp2027/VIBE`
-- Set build settings for Vite
-- Add environment variables:
+- Dépôt : `Vibeapp2027/VIBE`, branche `main`.
+- Commande de build : `npm ci && npm run build`.
+- Répertoire de sortie : `dist`.
+- Domaine personnalisé à ajouter dans Cloudflare Pages : `vibegay.ca` (ajouter aussi `www.vibegay.ca` si vous souhaitez servir le sous-domaine).
+- Variables publiques à configurer dans Cloudflare Pages :
 
 ```dotenv
 VITE_API_BASE_URL=https://api.vibegay.ca
 VITE_API_HEALTH_URL=https://api.vibegay.ca/api/health
-VITE_SUPABASE_HEALTH_URL=https://<votre-projet>.supabase.co/rest/v1/
+VITE_SOS_API_URL=https://api.vibegay.ca/api/sos/heartbeat
 VITE_LOI25_POLICY_URL=https://vibegay.ca/confidentialite
 VITE_TRANSLATION_HEALTH_URL=https://api.vibegay.ca/api/translation/health
 VITE_VOICE_HEALTH_URL=https://api.vibegay.ca/api/voice/health
-VITE_SOS_API_URL=https://api.vibegay.ca/api/sos/heartbeat
-
-VITE_ADMIN_CONTACT_EMAIL=vibegay666@hotmail.com
-VITE_OPERATIONS_DIRECTOR_NAME=Jean Marc Reid
-VITE_OPERATIONS_DIRECTOR_EMAIL=jmarcreid@gmail.com
-VITE_SUPPORT_CONTACT_EMAIL=support@vibegay.ca
-
 VITE_FREE_REGISTRATIONS_LIMIT=2500
-VITE_FREE_REGISTRATIONS_USED=0
 VITE_YEARLY_PAID_TICKETS_LIMIT=500
-VITE_YEARLY_PAID_TICKETS_SOLD=0
 VITE_YEARLY_PAID_TICKET_PRICE_CAD=99
 VITE_NON_SUBSCRIBER_RADIUS_KM=20
-
 VITE_HEALTHCHECK_TIMEOUT_MS=5000
 VITE_GEOLOCATION_TIMEOUT_MS=10000
 VITE_SOS_TIMEOUT_MS=10000
 VITE_SOS_HEARTBEAT_MS=10000
 ```
 
-Then add the custom domain:
-- `vibegay.ca`
+Les variables `VITE_*` sont intégrées au JavaScript livré au navigateur : n’y mettez jamais de clé secrète. Les valeurs d’URL de santé et les fonctions associées ne fonctionneront que si les services et routes correspondants existent réellement.
 
-## 2. Backend API: deploy on Render / Railway / VPS
+## Backend — Render, Railway ou serveur Node
 
-Deploy the code from the repo root file `server.js`.
+Configurer le service pour utiliser le sous-répertoire `backend` comme répertoire racine (Root Directory), la commande d’installation `npm install` et la commande de démarrage `npm start`. Le point d’entrée est `backend/server.js`; ses dépendances et son script de démarrage sont déclarés dans `backend/package.json`.
 
-Set environment variables:
+Variables privées du service backend :
 
 ```dotenv
-BASE_URL=https://api.vibegay.ca
 NODE_ENV=production
 PORT=3000
-
-SUPABASE_URL=https://<votre-projet>.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=<service_role_key>
-
-STRIPE_SECRET_KEY=<stripe_secret_key>
-STRIPE_WEBHOOK_SECRET=<stripe_webhook_secret>
-STRIPE_PRICE_PREMIUM=<price_id_premium>
-STRIPE_PRICE_FOUNDER=<price_id_founder>
+BASE_URL=https://vibegay.ca
+CORS_ORIGIN=https://vibegay.ca
+SUPABASE_URL=https://<projet>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<secret>
+STRIPE_SECRET_KEY=<secret>
+STRIPE_WEBHOOK_SECRET=<secret>
+STRIPE_PRICE_PREMIUM=<price_id>
+STRIPE_PRICE_FOUNDER=<price_id>
 ```
 
-Run:
+Ne publiez jamais ces secrets dans GitHub ou dans une variable `VITE_*`. Configurez `api.vibegay.ca` dans le fournisseur DNS pour qu’il pointe vers l’URL/target fournie par votre hébergeur backend, puis configurez ce domaine dans le service hébergé.
 
-```bash
-npm install
-npm start
-```
+Le serveur répond sur `/api/health` même avant la configuration de Supabase. Les routes nécessitant Supabase ou Stripe renvoient une erreur de service non configuré plutôt que de simuler une opération réussie.
 
-Create the DNS record:
-- `api.vibegay.ca` -> backend service
+## Supabase et Stripe
 
-## 3. Supabase schema
+Le schéma de base doit être créé dans Supabase avant d’utiliser les routes de données. Le SQL minimal est dans la section précédente de l’historique de déploiement et le schéma MVP est dans `backend/schema.sql`; vérifiez les politiques RLS et la correspondance des colonnes avec le code avant de l’exécuter en production.
 
-Run the following in Supabase SQL Editor:
+Dans Stripe, créer un webhook `https://api.vibegay.ca/api/webhooks/stripe` avec l’événement `checkout.session.completed`, puis configurer son secret dans `STRIPE_WEBHOOK_SECRET`. Configurer également les identifiants de prix réels dans les variables du backend.
 
-```sql
-CREATE TABLE IF NOT EXISTS users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  auth_id TEXT UNIQUE,
-  email TEXT,
-  role TEXT DEFAULT 'member',
-  stripe_customer_id TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
+## Vérification après configuration
 
-CREATE TABLE IF NOT EXISTS profiles (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES users(id),
-  display_name TEXT,
-  bio TEXT,
-  city TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
+- `https://vibegay.ca` : le frontend s’affiche.
+- `https://api.vibegay.ca/api/health` : le backend répond `status: ok`.
+- `https://api.vibegay.ca/api/platform/status` : vérifie la connexion à Supabase.
 
-CREATE TABLE IF NOT EXISTS contacts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT,
-  email TEXT,
-  subject TEXT,
-  message TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS sos_sessions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES users(id),
-  latitude DOUBLE PRECISION,
-  longitude DOUBLE PRECISION,
-  event_type TEXT,
-  metadata JSONB,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-## 4. Stripe configuration
-
-In Stripe Dashboard:
-- Go to Developers > Webhooks
-- Add endpoint: `https://api.vibegay.ca/api/webhooks/stripe`
-- Select events:
-  - `checkout.session.completed`
-  - `payment_intent.succeeded`
-- Copy the webhook secret (`whsec_...`) into `STRIPE_WEBHOOK_SECRET`
-
-## 5. Final validation
-
-Use these URLs after deploy:
-- `https://vibegay.ca`
-- `https://api.vibegay.ca/api/health`
-- `https://api.vibegay.ca/api/platform/status`
-- `https://api.vibegay.ca/api/contact`
-- `https://api.vibegay.ca/api/sos/heartbeat`
-- `https://api.vibegay.ca/api/search?q=test`
-
-## 6. Important note
-
-The code is ready for production in the repo.
-The remaining items require access to your real Cloudflare, Supabase, and Stripe accounts to insert the actual secrets and DNS records.
+Un workflow GitHub Pages vert confirme seulement que ce workflow a publié ses fichiers; il ne prouve ni le DNS du domaine, ni le déploiement Cloudflare, ni la disponibilité du backend. La configuration des domaines, DNS, certificats et secrets doit être faite dans les comptes d’hébergement correspondants.
