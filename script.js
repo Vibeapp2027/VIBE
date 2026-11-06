@@ -21,4 +21,24 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     });
+
+    // 🎨 Palette: Use IntersectionObserver to update aria-current on scroll
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const id = entry.target.getAttribute('id');
+                navLinks.forEach(nav => {
+                    if (nav.getAttribute('href') === `#${id}`) {
+                        nav.setAttribute('aria-current', 'true');
+                    } else {
+                        nav.removeAttribute('aria-current');
+                    }
+                });
+            }
+        });
+    }, { threshold: 0.5 });
+
+    document.querySelectorAll('main section').forEach(section => {
+        observer.observe(section);
+    });
 });
